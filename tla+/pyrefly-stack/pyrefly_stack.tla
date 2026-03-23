@@ -79,7 +79,7 @@ Next ==
     \/ \E dep \in Nodes : Descend(dep)
     \/ Complete
 
-Spec == Init /\ [][Next]_vars
+Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 
 \* ---------------------------------------------------------------
 \* Invariants
@@ -96,12 +96,21 @@ DepsBeforeDone ==
             \A dep \in graph[n] : state[dep] = "Done"
 
 \* ---------------------------------------------------------------
+\* Properties
+\* ---------------------------------------------------------------
+
+Finished ==
+    \A n \in Nodes : state[n] = "Done"
+
+Liveness == <>Finished
+
+\* ---------------------------------------------------------------
 \* Probes (temporarily add to INVARIANT in cfg to see traces)
 \* ---------------------------------------------------------------
 
 \* "Can the stack ever have 2+ elements?"
 \* TLC will show a trace with a real DFS descent.
-ProbeDeepStack ==
-    Len(stack) < 2
+\* ProbeDeepStack ==
+\*    Len(stack) < 2
 
 ====
