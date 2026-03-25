@@ -143,8 +143,25 @@ MergedNodeState(all_members, overlapping) ==
              IN scc_stack[i].node_state[n]
         ELSE "SccInProgress"]
 
-\* Minimum of a nonempty set of naturals.
+\* Minimum / Maximum of a nonempty set of naturals.
 MinOfSet(S) == CHOOSE x \in S : \A y \in S : x <= y
+MaxOfSet(S) == CHOOSE x \in S : \A y \in S : x >= y
+
+\* For a back-edge to dep, find the relevant stack position.
+\* - If dep is directly on the stack (not in an SCC), use its position.
+\* - If dep is in an SCC, use the deepest stack position of any
+\*   member of that SCC. This reflects that the SCC is logically
+\*   one unit on the stack — a back-edge to any member is a
+\*   back-edge to the whole SCC.
+\* - Returns 0 if no relevant position exists (this shouldn't occur
+\*   in a legal trace)
+BackEdgeTargetPos(dep) ==
+    LET depSccIdx == SccOf(dep)
+    IN  IF depSccIdx /= 0
+        THEN LET positions == {StackPos(n) : n \in scc_stack[depSccIdx].members} \ {0}
+             IN  IF positions = {} THEN 0
+                 ELSE MaxOfSet(positions)
+        ELSE StackPos(dep)
 
 \* Resolve a detected cycle: merge overlapping SCCs, absorb
 \* free-floating cycle members, or create a new SCC.
@@ -192,20 +209,25 @@ ResolveCycle(cycle_members, anchor) ==
     THEN UNCHANGED scc_stack
     ELSE MergeOrCreateScc(cycle_members, anchor)
 
-\* The top of the stack has a dependency that is InProgress and on
-\* the stack: we've found a cycle. Resolve it by creating or
-\* merging SCCs. Global state is untouched.
+\* The top of the stack has a dependency that is globally InProgress
+\* and either on the stack or in an existing SCC: we've found a
+\* back-edge. Resolve it by creating or merging SCCs.
+\*
+\* The cycle extends from the top of the stack down to the deepest
+\* stack position associated with dep (or dep's SCC). All nodes in
+\* that range, plus any SCCs they overlap with, get merged.
 DetectCycle(dep) ==
     /\ stack /= <<>>
     /\ LET top == Head(stack)
        IN  /\ dep \in graph[top]
            /\ state[dep] = "InProgress"
-           /\ dep \in StackSet
-           /\ LET pos == StackPos(dep)
-                  cycle_members == StackSlice(pos)
-                  anchor == Len(stack) - pos
-              IN  /\ ResolveCycle(cycle_members, anchor)
-                  /\ UNCHANGED <<state, graph, stack>>
+           /\ dep \in StackSet \/ InAnyScc(dep)
+           /\ LET target_pos == BackEdgeTargetPos(dep)
+              IN  /\ target_pos /= 0
+                  /\ LET cycle_members == StackSlice(target_pos)
+                         anchor == Len(stack) - target_pos
+                     IN  /\ ResolveCycle(cycle_members, anchor)
+                         /\ UNCHANGED <<state, graph, stack>>
 
 \* The top of the stack is in an SCC and has a dependency that is
 \* SccInProgress in the same SCC. This models get_idx encountering
