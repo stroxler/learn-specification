@@ -58,7 +58,12 @@ SccState(n) ==
 GlobalStates == {"Fresh", "InProgress", "Done"}
 
 \* SCC-local states model Scc.node_state.
-SccNodeStates == {"SccInProgress", "SccDone"}
+\* SccInProgress: being computed (not yet encountered as a back-edge dep)
+\* SccHasPlaceholder: a placeholder (Type::Var) was created for this node
+\*   because another SCC member needed its answer during phase 0.
+\*   Models the HasPlaceholder state in the implementation.
+\* SccDone: has a preliminary answer (may contain placeholders).
+SccNodeStates == {"SccInProgress", "SccHasPlaceholder", "SccDone"}
 
 TypeOk ==
     /\ state \in [Nodes -> GlobalStates]
@@ -199,11 +204,31 @@ DetectCycle(dep) ==
               IN  /\ ResolveCycle(cycle_members, anchor)
                   /\ UNCHANGED <<state, graph, stack>>
 
-\* The top of the stack has all dependencies done (globally Done,
-\* or SccDone in the same SCC): pop it.
-\* - If not in an SCC: mark global state Done.
-\* - If in an SCC: mark SCC-local state SccDone, global stays InProgress.
-Complete ==
+\* The top of the stack is in an SCC and has a dependency that is
+\* SccInProgress in the same SCC. This models get_idx encountering
+\* a back-edge within the SCC during phase 0: a placeholder
+\* (Type::Var) is created so computation can proceed with a
+\* temporary answer.
+CreatePlaceholder(dep) ==
+    /\ stack /= <<>>
+    /\ LET top == Head(stack)
+           topSccIdx == SccOf(top)
+       IN  /\ InAnyScc(top)
+           /\ dep \in graph[top]
+           /\ InAnyScc(dep)
+           /\ SccOf(dep) = topSccIdx
+           /\ SccState(dep) = "SccInProgress"
+           /\ scc_stack' = [scc_stack EXCEPT
+                  ![topSccIdx].node_state[dep] = "SccHasPlaceholder"]
+           /\ UNCHANGED <<state, graph, stack>>
+
+\* The top of the stack has all dependencies resolved: pop it.
+\* A dependency is resolved if it is:
+\*   - globally Done (outside any SCC), or
+\*   - SccDone or SccHasPlaceholder in the same SCC.
+\* If the node is not in an SCC: mark global state Done.
+\* If the node is in an SCC: mark SCC-local state SccDone.
+FinishCalculationAtTopOfStack ==
     /\ stack /= <<>>
     /\ LET top == Head(stack)
            inScc == InAnyScc(top)
@@ -211,8 +236,8 @@ Complete ==
        IN  /\ \A dep \in graph[top] :
                 \/ state[dep] = "Done"
                 \/ /\ InAnyScc(dep)
-                   /\ SccState(dep) = "SccDone"
                    /\ SccOf(dep) = topSccIdx
+                   /\ SccState(dep) \in {"SccDone", "SccHasPlaceholder"}
            /\ IF inScc
               THEN /\ scc_stack' = [scc_stack EXCEPT
                        ![topSccIdx].node_state[top] = "SccDone"]
@@ -226,7 +251,8 @@ Next ==
     \/ \E n \in Nodes : StartRoot(n)
     \/ \E dep \in Nodes : Descend(dep)
     \/ \E dep \in Nodes : DetectCycle(dep)
-    \/ Complete
+    \/ \E dep \in Nodes : CreatePlaceholder(dep)
+    \/ FinishCalculationAtTopOfStack
 
 Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 
