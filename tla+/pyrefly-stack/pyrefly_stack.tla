@@ -167,6 +167,12 @@ SccMembersConsistent ==
         \A n \in scc_stack[i].members :
             state[n] \in {"InProgressInScc", "DoneInScc"}
 
+\* No node appears in more than one SCC.
+SccMembersDisjoint ==
+    \A i \in 1..Len(scc_stack) :
+        \A j \in 1..Len(scc_stack) :
+            i /= j => scc_stack[i].members \intersect scc_stack[j].members = {}
+
 \* ---------------------------------------------------------------
 \* Properties
 \* ---------------------------------------------------------------
