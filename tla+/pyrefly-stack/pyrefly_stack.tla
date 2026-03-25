@@ -235,8 +235,7 @@ FinishCalculationAtTopOfStack ==
            topSccIdx == SccOf(top)
        IN  /\ \A dep \in graph[top] :
                 \/ state[dep] = "Done"
-                \/ /\ InAnyScc(dep)
-                   /\ SccOf(dep) = topSccIdx
+                \/ /\ SccOf(dep) = topSccIdx
                    /\ SccState(dep) \in {"SccDone", "SccHasPlaceholder"}
            /\ IF inScc
               THEN /\ scc_stack' = [scc_stack EXCEPT
