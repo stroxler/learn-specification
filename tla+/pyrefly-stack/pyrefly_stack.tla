@@ -34,6 +34,13 @@ StackPos(n) ==
 StackSlice(pos) ==
     {stack[i] : i \in 1..pos}
 
+\* Which SCC (by index in scc_stack) does node n belong to?
+\* Returns 0 if n is not in any SCC.
+SccOf(n) ==
+    IF \E i \in 1..Len(scc_stack) : n \in scc_stack[i].members
+    THEN CHOOSE i \in 1..Len(scc_stack) : n \in scc_stack[i].members
+    ELSE 0
+
 \* ---------------------------------------------------------------
 \* Type invariant
 \* ---------------------------------------------------------------
@@ -141,15 +148,18 @@ StackIsInProgress ==
         state[stack[i]] \in {"InProgress", "InProgressInScc"}
 
 \* No node is Done unless all its dependencies are Done.
-\* (DoneInScc deps are ok for DoneInScc nodes but not for Done.)
+\* A DoneInScc node's deps must be either Done (outside the SCC)
+\* or in the same SCC. This is why back-edge reads must trigger
+\* merging: a node cannot have preliminary deps in a *different* SCC.
 DepsBeforeDone ==
     \A n \in Nodes :
         /\ state[n] = "Done" =>
               \A dep \in graph[n] : state[dep] = "Done"
         /\ state[n] = "DoneInScc" =>
-              \A dep \in graph[n] : \/ state[dep] = "Done"
-                                    \/ state[dep] = "DoneInScc"
-                                    \/ state[dep] = "InProgressInScc"
+              \A dep \in graph[n] :
+                  \/ state[dep] = "Done"
+                  \/ /\ state[dep] \in {"DoneInScc", "InProgressInScc"}
+                     /\ SccOf(n) = SccOf(dep)
 
 \* Every SCC member is either in-progress or done-in-scc.
 SccMembersConsistent ==
