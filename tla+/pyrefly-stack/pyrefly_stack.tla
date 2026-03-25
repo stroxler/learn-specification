@@ -340,6 +340,14 @@ SccMembersDisjoint ==
         \A j \in 1..Len(scc_stack) :
             i /= j => scc_stack[i].members \intersect scc_stack[j].members = {}
 
+\* Every SCC on the scc_stack has at least one member on the calc
+\* stack. This is why SCC commit cannot cascade: when the top SCC
+\* commits (its last member was just popped), every lower SCC still
+\* has live members on the stack above its anchor.
+SccHasLiveMember ==
+    \A i \in 1..Len(scc_stack) :
+        \E n \in scc_stack[i].members : n \in StackSet
+
 \* SCCs are ordered on the scc_stack by anchor position: the top
 \* of scc_stack (index 1) has the highest anchor_pos (shallowest
 \* on the calc stack, i.e. most recently entered).
