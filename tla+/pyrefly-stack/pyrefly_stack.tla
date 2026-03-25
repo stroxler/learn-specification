@@ -144,8 +144,12 @@ StackIsInProgress ==
 \* (DoneInScc deps are ok for DoneInScc nodes but not for Done.)
 DepsBeforeDone ==
     \A n \in Nodes :
-        state[n] = "Done" =>
-            \A dep \in graph[n] : state[dep] = "Done"
+        /\ state[n] = "Done" =>
+              \A dep \in graph[n] : state[dep] = "Done"
+        /\ state[n] = "DoneInScc" =>
+              \A dep \in graph[n] : \/ state[dep] = "Done"
+                                    \/ state[dep] = "DoneInScc"
+                                    \/ state[dep] = "InProgressInScc"
 
 \* Every SCC member is either in-progress or done-in-scc.
 SccMembersConsistent ==
