@@ -35,7 +35,8 @@ StackSlice(pos) ==
     {stack[i] : i \in 1..pos}
 
 \* Which SCC (by index in scc_stack) does node n belong to?
-\* Returns 0 if n is not in any SCC.
+\* Returns 0 if n is not in any SCC. (0 is never a valid index
+\* since sequences are 1-indexed.)
 SccOf(n) ==
     IF \E i \in 1..Len(scc_stack) : n \in scc_stack[i].members
     THEN CHOOSE i \in 1..Len(scc_stack) : n \in scc_stack[i].members
@@ -45,10 +46,12 @@ SccOf(n) ==
 InAnyScc(n) ==
     \E i \in 1..Len(scc_stack) : n \in scc_stack[i].members
 
-\* Look up a node's SCC-local state. The node must be in an SCC.
+\* Look up a node's SCC-local state.
+\* Returns "NoScc" if the node is not in any SCC.
 SccState(n) ==
     LET i == SccOf(n)
-    IN  scc_stack[i].node_state[n]
+    IN  IF i = 0 THEN "NoScc"
+        ELSE scc_stack[i].node_state[n]
 
 \* ---------------------------------------------------------------
 \* Type invariant
@@ -211,38 +214,71 @@ DetectCycle(dep) ==
 \* temporary answer.
 CreatePlaceholder(dep) ==
     /\ stack /= <<>>
+    /\ scc_stack /= <<>>
     /\ LET top == Head(stack)
            topSccIdx == SccOf(top)
-       IN  /\ InAnyScc(top)
+       IN  /\ topSccIdx /= 0
            /\ dep \in graph[top]
-           /\ InAnyScc(dep)
            /\ SccOf(dep) = topSccIdx
            /\ SccState(dep) = "SccInProgress"
            /\ scc_stack' = [scc_stack EXCEPT
                   ![topSccIdx].node_state[dep] = "SccHasPlaceholder"]
            /\ UNCHANGED <<state, graph, stack>>
 
+\* Is the SCC at index idx fully done and ready to commit?
+\* All members must be SccDone and none can be on the calc stack.
+\* (The node being popped in this step is excluded from the stack
+\* check via the popping_node parameter.)
+SccReadyToCommit(idx, popping_node) ==
+    /\ \A n \in scc_stack[idx].members :
+        \/ scc_stack[idx].node_state[n] = "SccDone"
+        \/ n = popping_node  \* about to become SccDone
+    /\ \A n \in scc_stack[idx].members :
+        \/ n \notin StackSet
+        \/ n = popping_node  \* about to be popped
+
+\* Batch-commit an SCC: all members become globally Done,
+\* the SCC is removed from scc_stack.
+\* This models commit_final_answers / batch_commit_scc in the
+\* implementation. In a multithreaded model the write-locking
+\* would matter; here we just do the state transition atomically.
+CommitSccState(idx) ==
+    LET scc == scc_stack[idx]
+    IN  /\ state' = [n \in Nodes |->
+            IF n \in scc.members THEN "Done"
+            ELSE state[n]]
+        /\ scc_stack' = FilterSeq(scc_stack, {idx})
+
 \* The top of the stack has all dependencies resolved: pop it.
 \* A dependency is resolved if it is:
 \*   - globally Done (outside any SCC), or
 \*   - SccDone or SccHasPlaceholder in the same SCC.
-\* If the node is not in an SCC: mark global state Done.
-\* If the node is in an SCC: mark SCC-local state SccDone.
+\*
+\* If not in an SCC: mark global state Done.
+\* If in an SCC: mark SCC-local state SccDone. Then, if this was
+\*   the last member to finish, batch-commit the entire SCC
+\*   (all members become globally Done, SCC is removed).
+\*   This mirrors on_calculation_finished in the implementation.
 FinishCalculationAtTopOfStack ==
     /\ stack /= <<>>
     /\ LET top == Head(stack)
-           inScc == InAnyScc(top)
            topSccIdx == SccOf(top)
        IN  /\ \A dep \in graph[top] :
                 \/ state[dep] = "Done"
                 \/ /\ SccOf(dep) = topSccIdx
                    /\ SccState(dep) \in {"SccDone", "SccHasPlaceholder"}
-           /\ IF inScc
-              THEN /\ scc_stack' = [scc_stack EXCEPT
-                       ![topSccIdx].node_state[top] = "SccDone"]
-                   /\ UNCHANGED state
-              ELSE /\ state' = [state EXCEPT ![top] = "Done"]
+           /\ IF topSccIdx = 0
+              THEN \* Acyclic node: just mark Done.
+                   /\ state' = [state EXCEPT ![top] = "Done"]
                    /\ UNCHANGED scc_stack
+              ELSE IF SccReadyToCommit(topSccIdx, top)
+              THEN \* Last SCC member to finish: batch-commit.
+                   CommitSccState(topSccIdx)
+              ELSE \* SCC member but others still in progress:
+                   \* just update SCC-local state.
+                   /\ scc_stack' = [scc_stack EXCEPT
+                        ![topSccIdx].node_state[top] = "SccDone"]
+                   /\ UNCHANGED state
            /\ stack' = Tail(stack)
            /\ UNCHANGED graph
 
