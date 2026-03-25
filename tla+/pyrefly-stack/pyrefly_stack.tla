@@ -1,10 +1,12 @@
 ---- MODULE pyrefly_stack ----
 
-\* Step 3b: SCC detection (single cycle, no merging yet).
+\* Step 3b': Separate global state from SCC-local state.
 \*
-\* Adds scc_stack and new node states (InProgressInScc, DoneInScc).
-\* When Descend finds a dependency that's already InProgress on the
-\* stack, a candidate SCC is formed from the cycle members.
+\* Global state (modeling Calculation cells): Fresh / InProgress / Done.
+\* SCC-local state (modeling Scc.node_state): SccInProgress / SccDone.
+\* This separation mirrors the implementation: global state lives in
+\* Answers/Calculation, SCC state lives in thread-local Scc structs.
+\* Merging only touches SCC records, not global state.
 
 EXTENDS Sequences, FiniteSets, Naturals
 
@@ -29,8 +31,6 @@ StackPos(n) ==
     ELSE 0
 
 \* The set of nodes on the stack from position 1 (top) through pos.
-\* These are the nodes in the cycle: from the back-edge target up to
-\* the current top of stack.
 StackSlice(pos) ==
     {stack[i] : i \in 1..pos}
 
@@ -41,19 +41,42 @@ SccOf(n) ==
     THEN CHOOSE i \in 1..Len(scc_stack) : n \in scc_stack[i].members
     ELSE 0
 
+\* Is node n in any SCC?
+InAnyScc(n) ==
+    \E i \in 1..Len(scc_stack) : n \in scc_stack[i].members
+
+\* Look up a node's SCC-local state. The node must be in an SCC.
+SccState(n) ==
+    LET i == SccOf(n)
+    IN  scc_stack[i].node_state[n]
+
 \* ---------------------------------------------------------------
 \* Type invariant
 \* ---------------------------------------------------------------
 
-NodeStates == {"Fresh", "InProgress", "InProgressInScc", "DoneInScc", "Done"}
+\* Global states model Calculation cell status.
+GlobalStates == {"Fresh", "InProgress", "Done"}
 
-SccRecord == [members : SUBSET Nodes, anchor_pos : Nat]
+\* SCC-local states model Scc.node_state.
+SccNodeStates == {"SccInProgress", "SccDone"}
 
 TypeOk ==
-    /\ state \in [Nodes -> NodeStates]
+    /\ state \in [Nodes -> GlobalStates]
     /\ graph \in [Nodes -> SUBSET Nodes]
     /\ stack \in Seq(Nodes)
-    /\ scc_stack \in Seq(SccRecord)
+    \* We check scc_stack structure in SccWellFormed instead,
+    \* since TLC can't express dependent record types here.
+
+\* Each SCC record has valid members, anchor_pos, and a node_state
+\* function whose domain matches members.
+SccWellFormed ==
+    \A i \in 1..Len(scc_stack) :
+        /\ scc_stack[i].members \subseteq Nodes
+        /\ scc_stack[i].members /= {}
+        /\ scc_stack[i].anchor_pos \in Nat
+        /\ DOMAIN scc_stack[i].node_state = scc_stack[i].members
+        /\ \A n \in scc_stack[i].members :
+               scc_stack[i].node_state[n] \in SccNodeStates
 
 \* ---------------------------------------------------------------
 \* Initial state
@@ -87,48 +110,55 @@ Descend(dep) ==
            /\ stack' = <<dep>> \o stack
            /\ UNCHANGED <<graph, scc_stack>>
 
+\* Push a new SCC record onto scc_stack from a set of cycle members.
+\* All members start as SccInProgress.
+\* Defines scc_stack' only.
+PushNewScc(cycle_members, anchor) ==
+    scc_stack' = <<[members |-> cycle_members,
+                    anchor_pos |-> anchor,
+                    node_state |-> [n \in cycle_members |-> "SccInProgress"]]>>
+                 \o scc_stack
+
 \* The top of the stack has a dependency that is InProgress and on
-\* the stack: we've found a cycle. Form a new candidate SCC from
-\* all nodes between the target and the top of stack (inclusive).
-\* All cycle members become InProgressInScc.
+\* the stack: we've found a cycle. Form a new candidate SCC.
+\* Global state stays InProgress; SCC-local state tracks membership.
 \*
-\* For now, this only handles the case where no SCC exists yet
-\* (no merging). We require the target is plain InProgress.
+\* For now, this only handles the simple case (no merging).
 DetectCycle(dep) ==
     /\ stack /= <<>>
     /\ LET top == Head(stack)
        IN  /\ dep \in graph[top]
            /\ state[dep] = "InProgress"
            /\ dep \in StackSet
+           /\ ~InAnyScc(dep)
            /\ LET pos == StackPos(dep)
                   cycle_members == StackSlice(pos)
-                  new_state == [n \in Nodes |->
-                      IF n \in cycle_members
-                      THEN "InProgressInScc"
-                      ELSE state[n]]
-                  \* anchor_pos is the position from the bottom of
-                  \* the stack (convert from top-indexed)
                   anchor == Len(stack) - pos
-              IN  /\ scc_stack' = <<[members |-> cycle_members,
-                                     anchor_pos |-> anchor]>>
-                                  \o scc_stack
-                  /\ state' = new_state
-                  /\ UNCHANGED <<graph, stack>>
+              IN  /\ PushNewScc(cycle_members, anchor)
+                  /\ UNCHANGED <<state, graph, stack>>
 
-\* The top of the stack has all dependencies either Done or
-\* DoneInScc: pop it.
-\* - If the node is InProgress (acyclic), mark it Done.
-\* - If the node is InProgressInScc, mark it DoneInScc.
+\* The top of the stack has all dependencies done (globally Done,
+\* or SccDone in the same SCC): pop it.
+\* - If not in an SCC: mark global state Done.
+\* - If in an SCC: mark SCC-local state SccDone, global stays InProgress.
 Complete ==
     /\ stack /= <<>>
     /\ LET top == Head(stack)
+           inScc == InAnyScc(top)
+           topSccIdx == SccOf(top)
        IN  /\ \A dep \in graph[top] :
-                state[dep] \in {"Done", "DoneInScc"}
-           /\ state' = [state EXCEPT ![top] =
-                IF state[top] = "InProgress" THEN "Done"
-                ELSE "DoneInScc"]
+                \/ state[dep] = "Done"
+                \/ /\ InAnyScc(dep)
+                   /\ SccState(dep) = "SccDone"
+                   /\ SccOf(dep) = topSccIdx
+           /\ IF inScc
+              THEN /\ scc_stack' = [scc_stack EXCEPT
+                       ![topSccIdx].node_state[top] = "SccDone"]
+                   /\ UNCHANGED state
+              ELSE /\ state' = [state EXCEPT ![top] = "Done"]
+                   /\ UNCHANGED scc_stack
            /\ stack' = Tail(stack)
-           /\ UNCHANGED <<graph, scc_stack>>
+           /\ UNCHANGED graph
 
 Next ==
     \/ \E n \in Nodes : StartRoot(n)
@@ -142,30 +172,21 @@ Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 \* Invariants
 \* ---------------------------------------------------------------
 
-\* Everything on the stack is in an in-progress state.
+\* Everything on the stack is globally InProgress.
 StackIsInProgress ==
-    \A i \in 1..Len(stack) :
-        state[stack[i]] \in {"InProgress", "InProgressInScc"}
+    \A i \in 1..Len(stack) : state[stack[i]] = "InProgress"
 
-\* No node is Done unless all its dependencies are Done.
-\* A DoneInScc node's deps must be either Done (outside the SCC)
-\* or in the same SCC. This is why back-edge reads must trigger
-\* merging: a node cannot have preliminary deps in a *different* SCC.
+\* A node that is globally Done has all deps globally Done.
 DepsBeforeDone ==
     \A n \in Nodes :
-        /\ state[n] = "Done" =>
-              \A dep \in graph[n] : state[dep] = "Done"
-        /\ state[n] = "DoneInScc" =>
-              \A dep \in graph[n] :
-                  \/ state[dep] = "Done"
-                  \/ /\ state[dep] \in {"DoneInScc", "InProgressInScc"}
-                     /\ SccOf(n) = SccOf(dep)
+        state[n] = "Done" =>
+            \A dep \in graph[n] : state[dep] = "Done"
 
-\* Every SCC member is either in-progress or done-in-scc.
-SccMembersConsistent ==
+\* SCC members are globally InProgress (never Done while SCC exists).
+SccMembersGloballyInProgress ==
     \A i \in 1..Len(scc_stack) :
         \A n \in scc_stack[i].members :
-            state[n] \in {"InProgressInScc", "DoneInScc"}
+            state[n] = "InProgress"
 
 \* No node appears in more than one SCC.
 SccMembersDisjoint ==
