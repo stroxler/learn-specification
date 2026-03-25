@@ -110,31 +110,93 @@ Descend(dep) ==
            /\ stack' = <<dep>> \o stack
            /\ UNCHANGED <<graph, scc_stack>>
 
-\* Push a new SCC record onto scc_stack from a set of cycle members.
-\* All members start as SccInProgress.
-\* Defines scc_stack' only.
-PushNewScc(cycle_members, anchor) ==
-    scc_stack' = <<[members |-> cycle_members,
-                    anchor_pos |-> anchor,
-                    node_state |-> [n \in cycle_members |-> "SccInProgress"]]>>
-                 \o scc_stack
+\* Remove entries at indices in `remove` from sequence `seq`.
+\* Preserves the relative order of kept entries.
+FilterSeq(seq, remove) ==
+    LET F[i \in 0..Len(seq)] ==
+        IF i = 0 THEN <<>>
+        ELSE IF i \in remove THEN F[i-1]
+        ELSE Append(F[i-1], seq[i])
+    IN F[Len(seq)]
+
+\* Indices of existing SCCs that overlap with a set of nodes.
+OverlappingSccs(nodes) ==
+    {i \in 1..Len(scc_stack) :
+        scc_stack[i].members \intersect nodes /= {}}
+
+\* Merge node_states from overlapping SCCs with new cycle members.
+\* Existing SCC members keep their current state; new members get
+\* SccInProgress.
+MergedNodeState(all_members, overlapping) ==
+    [n \in all_members |->
+        IF \E i \in overlapping : n \in scc_stack[i].members
+        THEN LET i == CHOOSE i \in overlapping :
+                           n \in scc_stack[i].members
+             IN scc_stack[i].node_state[n]
+        ELSE "SccInProgress"]
+
+\* Minimum of a nonempty set of naturals.
+MinOfSet(S) == CHOOSE x \in S : \A y \in S : x <= y
+
+\* Resolve a detected cycle: merge overlapping SCCs, absorb
+\* free-floating cycle members, or create a new SCC.
+\* Returns the new scc_stack value.
+\*
+\* Cases:
+\*   - All cycle_members already in one SCC -> no change (no-op)
+\*   - No overlapping SCCs -> push a brand-new SCC
+\*   - Overlapping SCCs -> merge them all + new members into one
+\* No-op check: all cycle members are already in a single SCC.
+\* By SccStackOrdered + SccMembersDisjoint, this can only be the
+\* top SCC. The implementation uses this for an O(1) short-circuit
+\* on back-edges within the current SCC.
+CycleAlreadyContained(cycle_members) ==
+    \E i \in 1..Len(scc_stack) :
+        cycle_members \subseteq scc_stack[i].members
+
+\* Nontrivial cycle resolution: merge all overlapping SCCs with
+\* the new cycle members into a single SCC, and remove the old
+\* SCCs from scc_stack.
+MergeOrCreateScc(cycle_members, anchor) ==
+    LET overlapping == OverlappingSccs(cycle_members)
+
+        \* Union all members: existing SCC members + new cycle members.
+        all_members == cycle_members \union
+            UNION {scc_stack[i].members : i \in overlapping}
+
+        \* Minimum anchor across all merged SCCs and the new cycle.
+        all_anchors == {scc_stack[i].anchor_pos : i \in overlapping}
+                       \union {anchor}
+        min_anchor == MinOfSet(all_anchors)
+
+        \* Build the merged SCC record.
+        new_scc == [members |-> all_members,
+                    anchor_pos |-> min_anchor,
+                    node_state |-> MergedNodeState(all_members, overlapping)]
+
+        \* Remove merged SCCs, prepend the new one.
+        remaining == FilterSeq(scc_stack, overlapping)
+
+    IN scc_stack' = <<new_scc>> \o remaining
+
+ResolveCycle(cycle_members, anchor) ==
+    IF CycleAlreadyContained(cycle_members)
+    THEN UNCHANGED scc_stack
+    ELSE MergeOrCreateScc(cycle_members, anchor)
 
 \* The top of the stack has a dependency that is InProgress and on
-\* the stack: we've found a cycle. Form a new candidate SCC.
-\* Global state stays InProgress; SCC-local state tracks membership.
-\*
-\* For now, this only handles the simple case (no merging).
+\* the stack: we've found a cycle. Resolve it by creating or
+\* merging SCCs. Global state is untouched.
 DetectCycle(dep) ==
     /\ stack /= <<>>
     /\ LET top == Head(stack)
        IN  /\ dep \in graph[top]
            /\ state[dep] = "InProgress"
            /\ dep \in StackSet
-           /\ ~InAnyScc(dep)
            /\ LET pos == StackPos(dep)
                   cycle_members == StackSlice(pos)
                   anchor == Len(stack) - pos
-              IN  /\ PushNewScc(cycle_members, anchor)
+              IN  /\ ResolveCycle(cycle_members, anchor)
                   /\ UNCHANGED <<state, graph, stack>>
 
 \* The top of the stack has all dependencies done (globally Done,
@@ -193,6 +255,18 @@ SccMembersDisjoint ==
     \A i \in 1..Len(scc_stack) :
         \A j \in 1..Len(scc_stack) :
             i /= j => scc_stack[i].members \intersect scc_stack[j].members = {}
+
+\* SCCs are ordered on the scc_stack by anchor position: the top
+\* of scc_stack (index 1) has the highest anchor_pos (shallowest
+\* on the calc stack, i.e. most recently entered).
+\* This is why the implementation can merge by popping from the
+\* top of the scc_stack: any cycle detected from the top of the
+\* calc stack will only overlap with a contiguous prefix of the
+\* scc_stack.
+SccStackOrdered ==
+    \A i \in 1..Len(scc_stack) :
+        \A j \in 1..Len(scc_stack) :
+            i < j => scc_stack[i].anchor_pos >= scc_stack[j].anchor_pos
 
 \* ---------------------------------------------------------------
 \* Properties
