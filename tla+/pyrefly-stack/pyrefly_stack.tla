@@ -10,7 +10,7 @@
 
 EXTENDS Sequences, FiniteSets, Naturals
 
-CONSTANT Nodes
+CONSTANT Nodes, MaxDeps
 
 VARIABLES state, graph, stack, scc_stack
 
@@ -93,6 +93,7 @@ SccWellFormed ==
 Init ==
     /\ state = [n \in Nodes |-> "Fresh"]
     /\ graph \in [Nodes -> SUBSET Nodes]
+    /\ \A n \in Nodes : Cardinality(graph[n]) <= MaxDeps
     /\ stack = <<>>
     /\ scc_stack = <<>>
 
