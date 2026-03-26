@@ -162,6 +162,13 @@ pred depsBeforeDone {
     n.gstate = Done implies all dep: n.deps | dep.gstate = Done
 }
 
+// --- Exploration commands ---
+
+// Show a trace where some node finishes.
+run show {
+  eventually some n: Node | n.gstate = Done
+} for exactly 4 Node, 5 Int, 10 steps
+
 check StackConsistent {
   always stackConsistent
 } for exactly 4 Node, 5 Int, 10 steps
@@ -174,9 +181,3 @@ check DepsBeforeDone {
   always depsBeforeDone
 } for exactly 4 Node, 5 Int, 10 steps
 
-// --- Exploration commands ---
-
-// Show a trace where some node finishes.
-run show {
-  eventually some n: Node | n.gstate = Done
-} for exactly 4 Node, 5 Int, 10 steps
