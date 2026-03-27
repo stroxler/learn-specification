@@ -5,18 +5,19 @@ import json
 import sys
 
 
+MULTI_ATOM_SIGS = {"Node", "Scc"}
+
 def atom_name(s):
-    """Shorten atom names: 'Node$2' -> 'N2', 'Fresh$0' -> 'Fresh', etc."""
+    """Shorten atom names: 'Node$2' -> 'N2', 'Scc$1' -> 'S1', 'Fresh$0' -> 'Fresh'."""
     if "$" not in s:
         return s
     base, idx = s.rsplit("$", 1)
+    # Multi-atom sigs: shorten to N0, S0, etc.
+    if base in MULTI_ATOM_SIGS:
+        prefix = base[0].upper()
+        return f"{prefix}{idx}"
     # Singletons (enums, CalcStack, Trace) always have $0 — just use base name
-    if idx == "0" and base not in ("Node",):
-        return base
-    # Nodes: shorten to N0, N1, etc.
-    if base == "Node":
-        return f"N{idx}"
-    return f"{base}{idx}"
+    return base
 
 
 def summarize_state(state_obj):
@@ -49,7 +50,21 @@ def summarize_state(state_obj):
 
     nodes_str = " ".join(f"{n}={s}" for n, s in sorted(node_states.items()))
 
-    return f"State {state_idx}: {event:15s} {acted_on:6s} | stack={stack_str:30s} | {nodes_str}"
+    # SCCs
+    sccs = []
+    for key, val in sorted(values.items()):
+        if key.startswith("Scc$"):
+            name = atom_name(key)
+            members = [atom_name(m[0]) for m in val.get("members", [])]
+            if members:
+                anchor = val.get("anchor", [[""]])[0][0] if val.get("anchor") else "?"
+                nst = {atom_name(e[0]): atom_name(e[1]) for e in val.get("nstate", [])}
+                member_str = ",".join(sorted(members))
+                nst_str = ",".join(f"{k}={v}" for k, v in sorted(nst.items()))
+                sccs.append(f"{name}({member_str} @{anchor} [{nst_str}])")
+    scc_str = " ".join(sccs) if sccs else "-"
+
+    return f"State {state_idx}: {event:15s} {acted_on:6s} | stack={stack_str:20s} | {nodes_str} | scc={scc_str}"
 
 
 def main():

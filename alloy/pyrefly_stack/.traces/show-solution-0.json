@@ -1,0 +1,980 @@
+{
+  "duration":592,
+  "incremental":true,
+  "instances":[
+    {
+      "messages":[
+        
+      ],
+      "skolems":{
+        "$show_s":{
+          "arity":1,
+          "data":[
+            [
+              "Scc$1"
+            ]
+          ]
+        }
+      },
+      "state":0,
+      "values":{
+        "0":{
+          
+        },
+        "1":{
+          
+        },
+        "2":{
+          
+        },
+        "3":{
+          
+        },
+        "CalcStack$0":{
+          "depth":[
+            [
+              "0"
+            ]
+          ],
+          "elems":[
+            
+          ]
+        },
+        "DescendEvt$0":{
+          
+        },
+        "DetectCycleEvt$0":{
+          
+        },
+        "Done$0":{
+          
+        },
+        "FinishEvt$0":{
+          
+        },
+        "Fresh$0":{
+          
+        },
+        "InProgress$0":{
+          
+        },
+        "Node$0":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            
+          ]
+        },
+        "Node$1":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$3"
+            ]
+          ]
+        },
+        "Node$2":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$1"
+            ]
+          ]
+        },
+        "Node$3":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$1"
+            ]
+          ]
+        },
+        "Scc$0":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$1":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$2":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$3":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "SccDone$0":{
+          
+        },
+        "SccHasPlaceholder$0":{
+          
+        },
+        "SccInProgress$0":{
+          
+        },
+        "StartRootEvt$0":{
+          
+        },
+        "StutterEvt$0":{
+          
+        },
+        "Trace$0":{
+          "acted_on":[
+            [
+              "Node$2"
+            ]
+          ],
+          "event":[
+            [
+              "StutterEvt$0"
+            ]
+          ]
+        },
+        "open$3/Ord$0":{
+          "Next":[
+            [
+              "SccInProgress$0",
+              "SccHasPlaceholder$0"
+            ],
+            [
+              "SccHasPlaceholder$0",
+              "SccDone$0"
+            ]
+          ],
+          "First":[
+            [
+              "SccInProgress$0"
+            ]
+          ]
+        },
+        "open$4/Ord$0":{
+          "Next":[
+            [
+              "StartRootEvt$0",
+              "DescendEvt$0"
+            ],
+            [
+              "DescendEvt$0",
+              "FinishEvt$0"
+            ],
+            [
+              "FinishEvt$0",
+              "DetectCycleEvt$0"
+            ],
+            [
+              "DetectCycleEvt$0",
+              "StutterEvt$0"
+            ]
+          ],
+          "First":[
+            [
+              "StartRootEvt$0"
+            ]
+          ]
+        },
+        "ordering/Ord$0":{
+          "Next":[
+            [
+              "Fresh$0",
+              "InProgress$0"
+            ],
+            [
+              "InProgress$0",
+              "Done$0"
+            ]
+          ],
+          "First":[
+            [
+              "Fresh$0"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "messages":[
+        
+      ],
+      "skolems":{
+        "$show_s":{
+          "arity":1,
+          "data":[
+            [
+              "Scc$1"
+            ]
+          ]
+        }
+      },
+      "state":1,
+      "values":{
+        "0":{
+          
+        },
+        "1":{
+          
+        },
+        "2":{
+          
+        },
+        "3":{
+          
+        },
+        "CalcStack$0":{
+          "depth":[
+            [
+              "1"
+            ]
+          ],
+          "elems":[
+            [
+              "0",
+              "Node$3"
+            ]
+          ]
+        },
+        "DescendEvt$0":{
+          
+        },
+        "DetectCycleEvt$0":{
+          
+        },
+        "Done$0":{
+          
+        },
+        "FinishEvt$0":{
+          
+        },
+        "Fresh$0":{
+          
+        },
+        "InProgress$0":{
+          
+        },
+        "Node$0":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            
+          ]
+        },
+        "Node$1":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$3"
+            ]
+          ]
+        },
+        "Node$2":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$1"
+            ]
+          ]
+        },
+        "Node$3":{
+          "gstate":[
+            [
+              "InProgress$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$1"
+            ]
+          ]
+        },
+        "Scc$0":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$1":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$2":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$3":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "SccDone$0":{
+          
+        },
+        "SccHasPlaceholder$0":{
+          
+        },
+        "SccInProgress$0":{
+          
+        },
+        "StartRootEvt$0":{
+          
+        },
+        "StutterEvt$0":{
+          
+        },
+        "Trace$0":{
+          "acted_on":[
+            [
+              "Node$3"
+            ]
+          ],
+          "event":[
+            [
+              "StartRootEvt$0"
+            ]
+          ]
+        },
+        "open$3/Ord$0":{
+          "Next":[
+            [
+              "SccInProgress$0",
+              "SccHasPlaceholder$0"
+            ],
+            [
+              "SccHasPlaceholder$0",
+              "SccDone$0"
+            ]
+          ],
+          "First":[
+            [
+              "SccInProgress$0"
+            ]
+          ]
+        },
+        "open$4/Ord$0":{
+          "Next":[
+            [
+              "StartRootEvt$0",
+              "DescendEvt$0"
+            ],
+            [
+              "DescendEvt$0",
+              "FinishEvt$0"
+            ],
+            [
+              "FinishEvt$0",
+              "DetectCycleEvt$0"
+            ],
+            [
+              "DetectCycleEvt$0",
+              "StutterEvt$0"
+            ]
+          ],
+          "First":[
+            [
+              "StartRootEvt$0"
+            ]
+          ]
+        },
+        "ordering/Ord$0":{
+          "Next":[
+            [
+              "Fresh$0",
+              "InProgress$0"
+            ],
+            [
+              "InProgress$0",
+              "Done$0"
+            ]
+          ],
+          "First":[
+            [
+              "Fresh$0"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "messages":[
+        
+      ],
+      "skolems":{
+        "$show_s":{
+          "arity":1,
+          "data":[
+            [
+              "Scc$1"
+            ]
+          ]
+        }
+      },
+      "state":2,
+      "values":{
+        "0":{
+          
+        },
+        "1":{
+          
+        },
+        "2":{
+          
+        },
+        "3":{
+          
+        },
+        "CalcStack$0":{
+          "depth":[
+            [
+              "2"
+            ]
+          ],
+          "elems":[
+            [
+              "0",
+              "Node$3"
+            ],
+            [
+              "1",
+              "Node$1"
+            ]
+          ]
+        },
+        "DescendEvt$0":{
+          
+        },
+        "DetectCycleEvt$0":{
+          
+        },
+        "Done$0":{
+          
+        },
+        "FinishEvt$0":{
+          
+        },
+        "Fresh$0":{
+          
+        },
+        "InProgress$0":{
+          
+        },
+        "Node$0":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            
+          ]
+        },
+        "Node$1":{
+          "gstate":[
+            [
+              "InProgress$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$3"
+            ]
+          ]
+        },
+        "Node$2":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$1"
+            ]
+          ]
+        },
+        "Node$3":{
+          "gstate":[
+            [
+              "InProgress$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$1"
+            ]
+          ]
+        },
+        "Scc$0":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$1":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$2":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$3":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "SccDone$0":{
+          
+        },
+        "SccHasPlaceholder$0":{
+          
+        },
+        "SccInProgress$0":{
+          
+        },
+        "StartRootEvt$0":{
+          
+        },
+        "StutterEvt$0":{
+          
+        },
+        "Trace$0":{
+          "acted_on":[
+            [
+              "Node$1"
+            ]
+          ],
+          "event":[
+            [
+              "DescendEvt$0"
+            ]
+          ]
+        },
+        "open$3/Ord$0":{
+          "Next":[
+            [
+              "SccInProgress$0",
+              "SccHasPlaceholder$0"
+            ],
+            [
+              "SccHasPlaceholder$0",
+              "SccDone$0"
+            ]
+          ],
+          "First":[
+            [
+              "SccInProgress$0"
+            ]
+          ]
+        },
+        "open$4/Ord$0":{
+          "Next":[
+            [
+              "StartRootEvt$0",
+              "DescendEvt$0"
+            ],
+            [
+              "DescendEvt$0",
+              "FinishEvt$0"
+            ],
+            [
+              "FinishEvt$0",
+              "DetectCycleEvt$0"
+            ],
+            [
+              "DetectCycleEvt$0",
+              "StutterEvt$0"
+            ]
+          ],
+          "First":[
+            [
+              "StartRootEvt$0"
+            ]
+          ]
+        },
+        "ordering/Ord$0":{
+          "Next":[
+            [
+              "Fresh$0",
+              "InProgress$0"
+            ],
+            [
+              "InProgress$0",
+              "Done$0"
+            ]
+          ],
+          "First":[
+            [
+              "Fresh$0"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "messages":[
+        
+      ],
+      "skolems":{
+        "$show_s":{
+          "arity":1,
+          "data":[
+            [
+              "Scc$1"
+            ]
+          ]
+        }
+      },
+      "state":3,
+      "values":{
+        "0":{
+          
+        },
+        "1":{
+          
+        },
+        "2":{
+          
+        },
+        "3":{
+          
+        },
+        "CalcStack$0":{
+          "depth":[
+            [
+              "2"
+            ]
+          ],
+          "elems":[
+            [
+              "0",
+              "Node$3"
+            ],
+            [
+              "1",
+              "Node$1"
+            ]
+          ]
+        },
+        "DescendEvt$0":{
+          
+        },
+        "DetectCycleEvt$0":{
+          
+        },
+        "Done$0":{
+          
+        },
+        "FinishEvt$0":{
+          
+        },
+        "Fresh$0":{
+          
+        },
+        "InProgress$0":{
+          
+        },
+        "Node$0":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            
+          ]
+        },
+        "Node$1":{
+          "gstate":[
+            [
+              "InProgress$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$3"
+            ]
+          ]
+        },
+        "Node$2":{
+          "gstate":[
+            [
+              "Fresh$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$1"
+            ]
+          ]
+        },
+        "Node$3":{
+          "gstate":[
+            [
+              "InProgress$0"
+            ]
+          ],
+          "deps":[
+            [
+              "Node$1"
+            ]
+          ]
+        },
+        "Scc$0":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$1":{
+          "members":[
+            [
+              "Node$1"
+            ],
+            [
+              "Node$3"
+            ]
+          ],
+          "anchor":[
+            [
+              "0"
+            ]
+          ],
+          "nstate":[
+            [
+              "Node$1",
+              "SccInProgress$0"
+            ],
+            [
+              "Node$3",
+              "SccInProgress$0"
+            ]
+          ]
+        },
+        "Scc$2":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "Scc$3":{
+          "members":[
+            
+          ],
+          "anchor":[
+            
+          ],
+          "nstate":[
+            
+          ]
+        },
+        "SccDone$0":{
+          
+        },
+        "SccHasPlaceholder$0":{
+          
+        },
+        "SccInProgress$0":{
+          
+        },
+        "StartRootEvt$0":{
+          
+        },
+        "StutterEvt$0":{
+          
+        },
+        "Trace$0":{
+          "acted_on":[
+            [
+              "Node$3"
+            ]
+          ],
+          "event":[
+            [
+              "DetectCycleEvt$0"
+            ]
+          ]
+        },
+        "open$3/Ord$0":{
+          "Next":[
+            [
+              "SccInProgress$0",
+              "SccHasPlaceholder$0"
+            ],
+            [
+              "SccHasPlaceholder$0",
+              "SccDone$0"
+            ]
+          ],
+          "First":[
+            [
+              "SccInProgress$0"
+            ]
+          ]
+        },
+        "open$4/Ord$0":{
+          "Next":[
+            [
+              "StartRootEvt$0",
+              "DescendEvt$0"
+            ],
+            [
+              "DescendEvt$0",
+              "FinishEvt$0"
+            ],
+            [
+              "FinishEvt$0",
+              "DetectCycleEvt$0"
+            ],
+            [
+              "DetectCycleEvt$0",
+              "StutterEvt$0"
+            ]
+          ],
+          "First":[
+            [
+              "StartRootEvt$0"
+            ]
+          ]
+        },
+        "ordering/Ord$0":{
+          "Next":[
+            [
+              "Fresh$0",
+              "InProgress$0"
+            ],
+            [
+              "InProgress$0",
+              "Done$0"
+            ]
+          ],
+          "First":[
+            [
+              "Fresh$0"
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "localtime":"2026-03-26T17:23:11.581967",
+  "loopstate":-1,
+  "sigs":{
+    
+  },
+  "timezone":"America/Los_Angeles",
+  "utctime":1774570991581
+}
