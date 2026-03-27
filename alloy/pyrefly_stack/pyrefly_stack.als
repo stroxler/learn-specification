@@ -117,7 +117,7 @@ pred popStack {
 
 // --- Event tracking (for trace readability) ---
 
-enum Event { StartRootEvt, DescendEvt, FinishEvt, DetectCycleEvt, StutterEvt }
+enum Event { StartRootEvt, DescendEvt, FinishEvt, DetectCycleEvt, PlaceholderEvt, StutterEvt }
 one sig Trace {
   var event: one Event,
   var acted_on: one Node
@@ -152,18 +152,67 @@ pred descend[dep: Node] {
   Trace.acted_on' = dep
 }
 
-// The top of the stack has all deps resolved: pop it and mark Done.
-// (Non-SCC version: all deps must be globally Done.)
+// Is the SCC fully done and ready to commit?
+// All members must be SccDone (or the node being popped right now),
+// and all members must be off the calc stack (or the node being popped).
+pred sccReadyToCommit[scc: Scc, poppingNode: Node] {
+  all n: scc.members |
+    scc.nstate[n] = SccDone or n = poppingNode
+  all n: scc.members |
+    n not in stackNodes or n = poppingNode
+}
+
+// The top of the stack has all deps resolved: pop it.
+// A dep is resolved if it is globally Done, or SccDone/SccHasPlaceholder
+// in the same SCC as the top node.
 pred finishCalculation {
-  // Guards
   CalcStack.depth > 0
-  all dep: stackTop.deps | dep.gstate = Done
-  // Effects
-  gstate' = gstate ++ (stackTop -> Done)
-  popStack
-  sccUnchanged
-  Trace.event' = FinishEvt
-  Trace.acted_on' = stackTop
+  let top = stackTop |
+  let topScc = sccOf[top] |
+  {
+    // Guard: all deps of top are resolved
+    all dep: top.deps |
+      dep.gstate = Done
+      or (some topScc and dep in topScc.members
+          and topScc.nstate[dep] in (SccDone + SccHasPlaceholder))
+
+    // Effects depend on SCC membership
+    no topScc => {
+      // Case 1: Not in SCC — mark globally Done
+      gstate' = gstate ++ (top -> Done)
+      sccUnchanged
+    } else {
+      sccReadyToCommit[topScc, top] => {
+        // Case 2: Last SCC member to finish — batch-commit
+        gstate' = gstate ++ (topScc.members -> Done)
+        // Deactivate the committed SCC
+        topScc.members' = none
+        no topScc.anchor'
+        topScc.nstate' = none -> none
+        // Other SCCs unchanged
+        all s: Scc - topScc | {
+          s.members' = s.members
+          s.anchor' = s.anchor
+          s.nstate' = s.nstate
+        }
+      } else {
+        // Case 3: SCC member but others still in progress
+        gstateUnchanged
+        topScc.nstate' = topScc.nstate ++ (top -> SccDone)
+        topScc.members' = topScc.members
+        topScc.anchor' = topScc.anchor
+        all s: Scc - topScc | {
+          s.members' = s.members
+          s.anchor' = s.anchor
+          s.nstate' = s.nstate
+        }
+      }
+    }
+
+    popStack
+    Trace.event' = FinishEvt
+    Trace.acted_on' = top
+  }
 }
 
 // The top of the stack has an InProgress dependency that is on the stack:
@@ -204,6 +253,34 @@ pred detectCycle[dep: Node] {
   Trace.acted_on' = dep
 }
 
+// The top of the stack is in an SCC and has a dep that is SccInProgress
+// in the same SCC. A placeholder (Type::Var) is created so computation
+// can proceed with a temporary answer.
+pred createPlaceholder[dep: Node] {
+  CalcStack.depth > 0
+  let top = stackTop |
+  let topScc = sccOf[top] |
+  {
+    some topScc
+    dep in top.deps
+    dep in topScc.members
+    topScc.nstate[dep] = SccInProgress
+    // Mark dep as having a placeholder
+    topScc.nstate' = topScc.nstate ++ (dep -> SccHasPlaceholder)
+    topScc.members' = topScc.members
+    topScc.anchor' = topScc.anchor
+    all s: Scc - topScc | {
+      s.members' = s.members
+      s.anchor' = s.anchor
+      s.nstate' = s.nstate
+    }
+  }
+  gstateUnchanged
+  stackUnchanged
+  Trace.event' = PlaceholderEvt
+  Trace.acted_on' = dep
+}
+
 pred stutter {
   gstateUnchanged
   stackUnchanged
@@ -217,6 +294,7 @@ fact Transitions {
     (some n: Node | startRoot[n])
     or (some dep: Node | descend[dep])
     or (some dep: Node | detectCycle[dep])
+    or (some dep: Node | createPlaceholder[dep])
     or finishCalculation
     or stutter
   }
@@ -273,12 +351,10 @@ pred sccHasLiveMember {
 
 // --- Exploration commands ---
 
-// Show a trace where some node finishes.
-// Show a trace where an SCC is formed and visible for at least one state.
-// Show a trace where an SCC with 2+ members is formed.
+// Show a trace where all nodes reach Done.
 run show {
-  some s: Scc | eventually #s.members >= 2
-} for exactly 4 Node, exactly 4 Scc, 5 Int, 10 steps
+  eventually all n: Node | n.gstate = Done
+} for exactly 4 Node, 2 Scc, 5 Int, 12 steps
 
 check StackConsistent {
   always stackConsistent
