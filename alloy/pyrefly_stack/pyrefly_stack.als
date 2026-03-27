@@ -215,30 +215,59 @@ pred finishCalculation {
   }
 }
 
-// The top of the stack has an InProgress dependency that is on the stack:
-// we've found a back-edge. Create an SCC from the cycle members.
-// (Simplified: no merging with existing SCCs yet.)
+// The top of the stack has an InProgress dependency that is on the stack
+// (or in an existing SCC whose members are on the stack): back-edge found.
+// Create a new SCC or merge with existing overlapping SCCs.
 pred detectCycle[dep: Node] {
   // Guards
   CalcStack.depth > 0
   dep in stackTop.deps
   dep.gstate = InProgress
-  dep in stackNodes
+  dep in stackNodes or some sccOf[dep]
 
-  let targetPos = stackPos[dep] |
+  // Find the target position: dep's own stack position, or the deepest
+  // (lowest index) stack position of any member of dep's SCC.
+  let depScc = sccOf[dep] |
+  let targetPos = (no depScc) =>
+      stackPos[dep]
+    else
+      min[depScc.members.~(CalcStack.elems)] |
   let cycleMembers = { n: stackNodes | stackPos[n] >= targetPos } |
+  // SCCs that overlap with the cycle members
+  let overlapping = { s: activeSccs | some (s.members & cycleMembers) } |
   {
-    // If cycle is already contained in one SCC, no-op on SCCs
+    targetPos >= 0
+
+    // If cycle is already fully contained in one SCC, no-op
     (some s: activeSccs | cycleMembers in s.members) => {
       sccUnchanged
     } else {
-      // Allocate an inactive SCC slot for the new SCC
-      some newScc: Scc - activeSccs | {
-        newScc.members' = cycleMembers
-        newScc.anchor' = targetPos
-        newScc.nstate' = cycleMembers -> SccInProgress
-        // All other SCCs unchanged
-        all s: Scc - newScc | {
+      // Merge: union all overlapping SCC members with cycle members.
+      // Reuse one SCC slot (or allocate a new one), deactivate the rest.
+      let allMembers = cycleMembers + overlapping.members |
+      let minAnchor = (some overlapping) =>
+          min[overlapping.anchor + targetPos]
+        else
+          targetPos |
+      // Pick a slot: reuse an overlapping SCC if available, else allocate
+      let mergeInto = (some overlapping) =>
+          { s: overlapping | s.anchor = max[overlapping.anchor] }
+        else
+          (Scc - activeSccs) |
+      some target: mergeInto | {
+        target.members' = allMembers
+        target.anchor' = minAnchor
+        // Existing SCC members keep their node_state; new members get SccInProgress
+        target.nstate' =
+          (overlapping.nstate) ++ (cycleMembers - overlapping.members) -> SccInProgress
+        // Deactivate other overlapping SCCs (merged away)
+        all s: overlapping - target | {
+          s.members' = none
+          no s.anchor'
+          s.nstate' = none -> none
+        }
+        // Non-overlapping SCCs unchanged
+        all s: Scc - overlapping - target | {
           s.members' = s.members
           s.anchor' = s.anchor
           s.nstate' = s.nstate
@@ -354,7 +383,13 @@ pred sccHasLiveMember {
 // Show a trace where all nodes reach Done.
 run show {
   eventually all n: Node | n.gstate = Done
-} for exactly 4 Node, 2 Scc, 5 Int, 12 steps
+} for exactly 4 Node, exactly 2 Scc, 5 Int, 12 steps
+
+// Show a trace with a multi-node SCC that resolves.
+run showCycle {
+  some s: Scc | eventually #s.members >= 2
+  eventually all n: Node | n.gstate = Done
+} for exactly 4 Node, exactly 2 Scc, 5 Int, 15 steps
 
 check StackConsistent {
   always stackConsistent
