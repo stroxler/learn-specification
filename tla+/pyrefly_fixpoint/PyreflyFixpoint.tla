@@ -1,11 +1,9 @@
 ---- MODULE PyreflyFixpoint ----
 
-\* Iterative fixpoint SCC solver with dynamic dependency graphs.
+\* Iterative fixpoint SCC solver.
 \*
-\* This models Pyrefly's SCC solving algorithm where dependency edges
-\* are discovered during solving — different phases may traverse
-\* different subsets of the true graph. The solver runs a fixed number
-\* of iterations (MaxPhase) rather than checking for convergence.
+\* This models Pyrefly's SCC solving algorithm. The solver runs a fixed
+\* number of iterations (MaxPhase) rather than checking for convergence.
 \*
 \* Convergence detection is omitted intentionally: in Pyrefly, the
 \* iteration count is bounded (e.g., max 5). Convergence is just an
@@ -14,35 +12,36 @@
 \* without it. This model verifies correctness properties under the
 \* fixed-iteration protocol.
 \*
+\* NOTE: In the real Pyrefly, the dependency graph is dynamic — edges
+\* are discovered during solving, so different phases may traverse
+\* different subsets of the true graph. This model uses a static graph
+\* for simplicity. Modeling dynamic edge visibility is left for a
+\* future iteration (the subtleties of per-phase edge sets are better
+\* explored with a separate graph-generation tool or model).
+\*
 \* See DESIGN.md for the full design rationale.
 
 EXTENDS Sequences, FiniteSets, Naturals
 
 CONSTANTS
-    Nodes,              \* set of node identifiers
-    MaxDeps,            \* max outgoing edges per node (for tractability)
-    MaxPhase,           \* number of phases: 0 = discovery, 1..MaxPhase = iterations
-    FullTraversalPhase  \* which phase always sees full_graph
+    Nodes,      \* set of node identifiers
+    MaxDeps,    \* max outgoing edges per node (for tractability)
+    MaxPhase    \* number of phases: 0 = discovery, 1..MaxPhase = iterations
 
-\* full_graph is chosen once at Init and then frozen.
-\* drop_edges is a set of <<phase, src, dst>> triples indicating
-\* which edges are invisible in which phase. This is much more
-\* efficient than enumerating all possible phase_graphs functions.
-\* FullTraversalPhase never drops edges (enforced in Init).
+\* graph is the dependency graph, chosen once at Init and then frozen.
 \*
 \* scc_anchors_read tracks, for each node, which SCC anchor_pos
 \* values it has read preliminary answers from. Used to verify
 \* invariant (a): no cross-SCC preliminary answer leakage.
-VARIABLES state, stack, scc_stack, full_graph, drop_edges, scc_anchors_read
+VARIABLES state, stack, scc_stack, graph, scc_anchors_read
 
-vars == <<state, stack, scc_stack, full_graph, drop_edges, scc_anchors_read>>
+vars == <<state, stack, scc_stack, graph, scc_anchors_read>>
 
 \* ---------------------------------------------------------------
 \* Assumptions on constants
 \* ---------------------------------------------------------------
 
 ASSUME MaxPhase \in Nat
-ASSUME FullTraversalPhase \in 0..MaxPhase
 
 \* ---------------------------------------------------------------
 \* Helpers
@@ -86,22 +85,11 @@ SccPhase(n) ==
     IN  IF i = 0 THEN 0
         ELSE scc_stack[i].phase
 
-\* The dependency edges visible to node n in a given phase.
-\* Dynamic edges (drop_edges[n]) are only visible in FullTraversalPhase.
-PhaseGraph(p, n) ==
-    IF p = FullTraversalPhase
-    THEN full_graph[n]
-    ELSE full_graph[n] \ drop_edges[n]
-
 \* The dependency edges visible to node n.
-\* Nodes not in any SCC always see full_graph (dynamic visibility
-\* only applies within SCC iteration context).
-\* Nodes in an SCC see edges minus drops for their SCC's phase.
-VisibleGraph(n) ==
-    LET i == SccOf(n)
-    IN  IF i = 0
-        THEN full_graph[n]
-        ELSE PhaseGraph(scc_stack[i].phase, n)
+\* With a static graph, this is always graph[n].
+\* In the real Pyrefly code, this would be phase-dependent
+\* (some edges are only discovered in later phases).
+VisibleGraph(n) == graph[n]
 
 \* Minimum / Maximum of a nonempty set of naturals.
 MinOfSet(S) == CHOOSE x \in S : \A y \in S : x <= y
@@ -128,19 +116,19 @@ FilterSeq(seq, remove) ==
 \* Reachability and ground-truth SCCs
 \* ---------------------------------------------------------------
 
-\* Transitive closure of full_graph: Reachable(n) is the set of
-\* nodes reachable from n via one or more edges in full_graph.
+\* Transitive closure of graph: Reachable(n) is the set of
+\* nodes reachable from n via one or more edges in graph.
 \* Uses iterative fixpoint over the powerset.
 Reachable(n) ==
-    LET step(S) == S \union UNION {full_graph[m] : m \in S}
+    LET step(S) == S \union UNION {graph[m] : m \in S}
         \* Iterate |Nodes| times — sufficient for transitive closure.
         iter[i \in 0..Cardinality(Nodes)] ==
-            IF i = 0 THEN full_graph[n]
+            IF i = 0 THEN graph[n]
             ELSE step(iter[i-1])
     IN iter[Cardinality(Nodes)]
 
 \* The true SCC of node n: all nodes mutually reachable with n
-\* (including n itself) via full_graph. Only nodes that form a
+\* (including n itself) via graph. Only nodes that form a
 \* cycle are included — singleton nodes without self-loops are
 \* not considered SCCs.
 TrueScc(n) ==
@@ -196,18 +184,9 @@ Init ==
     /\ stack = <<>>
     /\ scc_stack = <<>>
     /\ scc_anchors_read = [n \in Nodes |-> {}]
-    \* Choose full_graph nondeterministically.
-    /\ full_graph \in [Nodes -> SUBSET Nodes]
-    /\ \A n \in Nodes : Cardinality(full_graph[n]) <= MaxDeps
-    \* Choose "dynamic edges": for each node, a subset of its edges
-    \* that are only visible in FullTraversalPhase. All other edges
-    \* are visible in every phase.
-    \* This is a simplification: in reality, each phase could have
-    \* independent visibility. But this captures the key phenomenon
-    \* (some edges are invisible during some phases) with a much
-    \* smaller state space.
-    /\ drop_edges \in [Nodes -> SUBSET Nodes]
-    /\ \A n \in Nodes : drop_edges[n] \subseteq full_graph[n]
+    \* Choose graph nondeterministically.
+    /\ graph \in [Nodes -> SUBSET Nodes]
+    /\ \A n \in Nodes : Cardinality(graph[n]) <= MaxDeps
 
 \* ---------------------------------------------------------------
 \* SCC merge helpers
@@ -229,16 +208,15 @@ MergedNodeState(all_members, overlapping) ==
              IN scc_stack[i].node_state[n]
         ELSE "SccInProgress"]
 
-\* When merging, reset to phase 0 if any merged SCC was in a
-\* fixpoint phase. This forces re-discovery with the expanded
-\* membership. If all are at phase 0, stay at phase 0.
-MergedPhase(overlapping) ==
-    IF overlapping = {} THEN 0
-    ELSE MinOfSet({scc_stack[i].phase : i \in overlapping})
+\* Merging always resets to phase 0. MergeOrCreateScc only fires
+\* when membership is expanding (CycleAlreadyContained was false),
+\* so the SCC must redo discovery with the expanded membership.
+\* This is the demotion logic: any merge during fixpoint iteration
+\* forces a full restart.
+MergedPhase(overlapping) == 0
 
-\* Merged prev/curr answers: union from overlapping SCCs, but
-\* clear if we're resetting phase (answers from previous phases
-\* are invalid with expanded membership).
+\* Merged prev/curr answers: always cleared since phase resets to 0.
+\* Answers from previous phases are invalid with expanded membership.
 MergedPrevAnswers(overlapping, merged_phase) ==
     IF merged_phase = 0 THEN {}
     ELSE UNION {scc_stack[i].prev_answers : i \in overlapping}
@@ -304,7 +282,7 @@ StartRoot(n) ==
     /\ state[n] = "Fresh"
     /\ state' = [state EXCEPT ![n] = "InProgress"]
     /\ stack' = <<n>>
-    /\ UNCHANGED <<scc_stack, full_graph, drop_edges, scc_anchors_read>>
+    /\ UNCHANGED <<scc_stack, graph, scc_anchors_read>>
 
 \* The top of the stack has a Fresh (globally) dependency: push it.
 \* Uses VisibleGraph — only edges visible in the current phase
@@ -316,7 +294,7 @@ Descend(dep) ==
            /\ state[dep] = "Fresh"
            /\ state' = [state EXCEPT ![dep] = "InProgress"]
            /\ stack' = <<dep>> \o stack
-           /\ UNCHANGED <<scc_stack, full_graph, drop_edges, scc_anchors_read>>
+           /\ UNCHANGED <<scc_stack, graph, scc_anchors_read>>
 
 \* During fixpoint phases (>= 1), descend into an SCC member that
 \* is SccFresh. This handles the case where member A depends on
@@ -335,7 +313,7 @@ DescendIntoSccMember(dep) ==
            /\ scc_stack' = [scc_stack EXCEPT
                   ![topSccIdx].node_state[dep] = "SccInProgress"]
            /\ stack' = <<dep>> \o stack
-           /\ UNCHANGED <<state, full_graph, drop_edges, scc_anchors_read>>
+           /\ UNCHANGED <<state, graph, scc_anchors_read>>
 
 \* The top of the stack has a dependency that is globally InProgress
 \* and either on the stack or in an existing SCC: back-edge found.
@@ -351,7 +329,7 @@ DetectCycle(dep) ==
                   /\ LET cycle_members == StackSlice(target_pos)
                          anchor == Len(stack) - target_pos
                      IN  /\ ResolveCycle(cycle_members, anchor)
-                         /\ UNCHANGED <<state, stack, full_graph, drop_edges>>
+                         /\ UNCHANGED <<state, stack, graph>>
 
 \* The top of the stack is in an SCC and has a dependency that is
 \* SccInProgress in the same SCC. A placeholder is created so
@@ -375,7 +353,7 @@ CreatePlaceholder(dep) ==
            /\ scc_anchors_read' = [scc_anchors_read EXCEPT
                   ![top] = scc_anchors_read[top] \union
                            {scc_stack[topSccIdx].anchor_pos}]
-           /\ UNCHANGED <<state, stack, full_graph, drop_edges>>
+           /\ UNCHANGED <<state, stack, graph>>
 
 \* The top of the stack is in an SCC (warm phase >= 2) and has a
 \* dependency that is SccInProgress in the same SCC. Instead of a
@@ -399,7 +377,7 @@ ReadPreviousAnswer(dep) ==
            /\ scc_anchors_read' = [scc_anchors_read EXCEPT
                   ![top] = scc_anchors_read[top] \union
                            {scc_stack[topSccIdx].anchor_pos}]
-           /\ UNCHANGED <<state, stack, full_graph, drop_edges>>
+           /\ UNCHANGED <<state, stack, graph>>
 
 \* Is the SCC at index idx fully done and ready to advance?
 \* All members must be SccDone and none can be on the calc stack.
@@ -459,7 +437,7 @@ FinishCalculation ==
                             scc_stack[topSccIdx].curr_answers \union {top}]
                    /\ UNCHANGED <<state, scc_anchors_read>>
            /\ stack' = Tail(stack)
-           /\ UNCHANGED <<full_graph, drop_edges>>
+           /\ UNCHANGED graph
 
 \* Transition an SCC to the next phase.
 \* Fires when all members are SccDone, none are on the stack,
@@ -485,7 +463,7 @@ TransitionPhase(idx) ==
            /\ scc_anchors_read' = [n \in Nodes |->
                IF n \in scc.members THEN {}
                ELSE scc_anchors_read[n]]
-    /\ UNCHANGED <<state, stack, full_graph, drop_edges>>
+    /\ UNCHANGED <<state, stack, graph>>
 
 \* Drive the next SCC member during fixpoint phases (>= 1).
 \* Picks the minimum SccFresh member. Only fires when no SCC
@@ -509,7 +487,7 @@ StartNextMember(idx) ==
               IN  /\ scc_stack' = [scc_stack EXCEPT
                        ![idx].node_state[n] = "SccInProgress"]
                   /\ stack' = <<n>> \o stack
-    /\ UNCHANGED <<state, full_graph, drop_edges, scc_anchors_read>>
+    /\ UNCHANGED <<state, graph, scc_anchors_read>>
 
 Next ==
     \/ \E n \in Nodes : StartRoot(n)
@@ -525,6 +503,34 @@ Next ==
 Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 
 \* ---------------------------------------------------------------
+\* Transition-level safety checks (explicit demotion semantics)
+\* ---------------------------------------------------------------
+
+\* State predicate: DetectCycle(dep) would perform a nontrivial merge
+\* (i.e., membership expansion rather than a no-op contained cycle).
+DetectCycleExpands(dep) ==
+    /\ stack /= <<>>
+    /\ LET top == Head(stack)
+           target_pos == BackEdgeTargetPos(dep)
+       IN  /\ dep \in VisibleGraph(top)
+           /\ state[dep] = "InProgress"
+           /\ dep \in StackSet \/ InAnyScc(dep)
+           /\ target_pos /= 0
+           /\ LET cycle_members == StackSlice(target_pos)
+              IN ~CycleAlreadyContained(cycle_members)
+
+\* Action formula: whenever DetectCycle runs and performs a membership
+\* expansion, the merged SCC must restart at phase 0.
+MergeExpansionResetsPhase0Action ==
+    \A dep \in Nodes :
+        /\ DetectCycle(dep)
+        /\ DetectCycleExpands(dep)
+        => scc_stack'[1].phase = 0
+
+\* Temporal property wrapping the action formula.
+MergeExpansionResetsPhase0 == [][MergeExpansionResetsPhase0Action]_vars
+
+\* ---------------------------------------------------------------
 \* Invariants (structural)
 \* ---------------------------------------------------------------
 
@@ -532,13 +538,13 @@ Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 StackIsInProgress ==
     \A i \in 1..Len(stack) : state[stack[i]] = "InProgress"
 
-\* A node that is globally Done has all deps (in full_graph) Done.
-\* Note: uses full_graph, not VisibleGraph. Once committed, a node's
-\* answer must be valid against all real dependencies.
+\* A node that is globally Done has all deps (in graph) Done.
+\* Once committed, a node's answer must be valid against all
+\* real dependencies.
 DepsBeforeDone ==
     \A n \in Nodes :
         state[n] = "Done" =>
-            \A dep \in full_graph[n] : state[dep] = "Done"
+            \A dep \in graph[n] : state[dep] = "Done"
 
 \* SCC members are globally InProgress (never Done while SCC exists).
 SccMembersGloballyInProgress ==
@@ -577,7 +583,7 @@ SccStackOrdered ==
             => scc_stack[i].anchor_pos >= scc_stack[j].anchor_pos
 
 \* ---------------------------------------------------------------
-\* Invariants (new: correctness properties)
+\* Invariants (correctness properties)
 \* ---------------------------------------------------------------
 
 \* (a) No cross-SCC preliminary answer leakage.
@@ -598,8 +604,6 @@ NoCrossSccLeakage ==
 \* (b) Committed SCCs match ground truth.
 \* At commit time (phase = MaxPhase, all members done), the SCC's
 \* members should be exactly one of the ground-truth SCCs.
-\* Since FullTraversalPhase forces full edge visibility at some
-\* point, all true members should have been discovered by commit.
 CommittedSccMatchesTruth ==
     \A i \in 1..Len(scc_stack) :
         scc_stack[i].phase = MaxPhase =>
@@ -616,6 +620,15 @@ AllAnswersAtCommit ==
         /\ \A n \in scc_stack[i].members :
             n \notin StackSet
         => scc_stack[i].curr_answers = scc_stack[i].members
+
+\* (d) Demotion correctness: if an SCC reached phase >= 2, it must
+\* have successfully completed phase 1, meaning all members produced
+\* answers that became prev_answers. If a merge expanded membership
+\* without resetting, prev_answers would be a strict subset of members.
+PrevAnswersComplete ==
+    \A i \in 1..Len(scc_stack) :
+        scc_stack[i].phase >= 2 =>
+            scc_stack[i].prev_answers = scc_stack[i].members
 
 \* ---------------------------------------------------------------
 \* Properties
