@@ -29,9 +29,13 @@ CONSTANTS
 \* which edges are invisible in which phase. This is much more
 \* efficient than enumerating all possible phase_graphs functions.
 \* FullTraversalPhase never drops edges (enforced in Init).
-VARIABLES state, stack, scc_stack, full_graph, drop_edges
+\*
+\* scc_anchors_read tracks, for each node, which SCC anchor_pos
+\* values it has read preliminary answers from. Used to verify
+\* invariant (a): no cross-SCC preliminary answer leakage.
+VARIABLES state, stack, scc_stack, full_graph, drop_edges, scc_anchors_read
 
-vars == <<state, stack, scc_stack, full_graph, drop_edges>>
+vars == <<state, stack, scc_stack, full_graph, drop_edges, scc_anchors_read>>
 
 \* ---------------------------------------------------------------
 \* Assumptions on constants
@@ -121,6 +125,34 @@ FilterSeq(seq, remove) ==
     IN F[Len(seq)]
 
 \* ---------------------------------------------------------------
+\* Reachability and ground-truth SCCs
+\* ---------------------------------------------------------------
+
+\* Transitive closure of full_graph: Reachable(n) is the set of
+\* nodes reachable from n via one or more edges in full_graph.
+\* Uses iterative fixpoint over the powerset.
+Reachable(n) ==
+    LET step(S) == S \union UNION {full_graph[m] : m \in S}
+        \* Iterate |Nodes| times — sufficient for transitive closure.
+        iter[i \in 0..Cardinality(Nodes)] ==
+            IF i = 0 THEN full_graph[n]
+            ELSE step(iter[i-1])
+    IN iter[Cardinality(Nodes)]
+
+\* The true SCC of node n: all nodes mutually reachable with n
+\* (including n itself) via full_graph. Only nodes that form a
+\* cycle are included — singleton nodes without self-loops are
+\* not considered SCCs.
+TrueScc(n) ==
+    LET mutual == {m \in Nodes : n \in Reachable(m) /\ m \in Reachable(n)}
+    IN  IF n \in Reachable(n) THEN mutual \union {n}
+        ELSE {}
+
+\* The set of all ground-truth SCCs (sets with >= 2 members, or
+\* singletons with self-loops).
+TrueSccSets == {TrueScc(n) : n \in Nodes} \ {{}}
+
+\* ---------------------------------------------------------------
 \* Type invariant
 \* ---------------------------------------------------------------
 
@@ -138,6 +170,7 @@ SccNodeStates == {"SccFresh", "SccInProgress", "SccHasPlaceholder", "SccDone"}
 TypeOk ==
     /\ state \in [Nodes -> GlobalStates]
     /\ stack \in Seq(Nodes)
+    /\ scc_anchors_read \in [Nodes -> SUBSET Nat]
     \* scc_stack structure checked in SccWellFormed.
 
 \* Each SCC record has valid members, anchor_pos, phase, node_state,
@@ -162,6 +195,7 @@ Init ==
     /\ state = [n \in Nodes |-> "Fresh"]
     /\ stack = <<>>
     /\ scc_stack = <<>>
+    /\ scc_anchors_read = [n \in Nodes |-> {}]
     \* Choose full_graph nondeterministically.
     /\ full_graph \in [Nodes -> SUBSET Nodes]
     /\ \A n \in Nodes : Cardinality(full_graph[n]) <= MaxDeps
@@ -244,11 +278,17 @@ MergeOrCreateScc(cycle_members, anchor) ==
                     prev_answers |-> MergedPrevAnswers(overlapping, merged_phase),
                     curr_answers |-> MergedCurrAnswers(overlapping, merged_phase)]
         remaining == FilterSeq(scc_stack, overlapping)
-    IN scc_stack' = <<new_scc>> \o remaining
+    IN  /\ scc_stack' = <<new_scc>> \o remaining
+        \* Clear anchor tracking for merged members — the anchor_pos
+        \* changed, so old records are invalid. This is sound because
+        \* the merge ensures all members are now in the same SCC.
+        /\ scc_anchors_read' = [n \in Nodes |->
+            IF n \in all_members THEN {}
+            ELSE scc_anchors_read[n]]
 
 ResolveCycle(cycle_members, anchor) ==
     IF CycleAlreadyContained(cycle_members)
-    THEN UNCHANGED scc_stack
+    THEN UNCHANGED <<scc_stack, scc_anchors_read>>
     ELSE MergeOrCreateScc(cycle_members, anchor)
 
 \* ---------------------------------------------------------------
@@ -258,10 +298,13 @@ ResolveCycle(cycle_members, anchor) ==
 \* Start a new DFS root: pick any Fresh node when the stack is empty.
 StartRoot(n) ==
     /\ stack = <<>>
+    \* Don't start a new root while there are active SCCs.
+    \* The real code finishes SCC processing before starting new roots.
+    /\ scc_stack = <<>>
     /\ state[n] = "Fresh"
     /\ state' = [state EXCEPT ![n] = "InProgress"]
     /\ stack' = <<n>>
-    /\ UNCHANGED <<scc_stack, full_graph, drop_edges>>
+    /\ UNCHANGED <<scc_stack, full_graph, drop_edges, scc_anchors_read>>
 
 \* The top of the stack has a Fresh (globally) dependency: push it.
 \* Uses VisibleGraph — only edges visible in the current phase
@@ -273,7 +316,7 @@ Descend(dep) ==
            /\ state[dep] = "Fresh"
            /\ state' = [state EXCEPT ![dep] = "InProgress"]
            /\ stack' = <<dep>> \o stack
-           /\ UNCHANGED <<scc_stack, full_graph, drop_edges>>
+           /\ UNCHANGED <<scc_stack, full_graph, drop_edges, scc_anchors_read>>
 
 \* During fixpoint phases (>= 1), descend into an SCC member that
 \* is SccFresh. This handles the case where member A depends on
@@ -292,7 +335,7 @@ DescendIntoSccMember(dep) ==
            /\ scc_stack' = [scc_stack EXCEPT
                   ![topSccIdx].node_state[dep] = "SccInProgress"]
            /\ stack' = <<dep>> \o stack
-           /\ UNCHANGED <<state, full_graph, drop_edges>>
+           /\ UNCHANGED <<state, full_graph, drop_edges, scc_anchors_read>>
 
 \* The top of the stack has a dependency that is globally InProgress
 \* and either on the stack or in an existing SCC: back-edge found.
@@ -315,6 +358,8 @@ DetectCycle(dep) ==
 \* computation can proceed with a temporary answer.
 \* Only valid during cold phases (0 and 1): in these phases there
 \* are no previous answers to use.
+\* Records the SCC's anchor_pos in scc_anchors_read for cross-SCC
+\* leakage detection.
 CreatePlaceholder(dep) ==
     /\ stack /= <<>>
     /\ scc_stack /= <<>>
@@ -327,12 +372,17 @@ CreatePlaceholder(dep) ==
            /\ SccState(dep) = "SccInProgress"
            /\ scc_stack' = [scc_stack EXCEPT
                   ![topSccIdx].node_state[dep] = "SccHasPlaceholder"]
+           /\ scc_anchors_read' = [scc_anchors_read EXCEPT
+                  ![top] = scc_anchors_read[top] \union
+                           {scc_stack[topSccIdx].anchor_pos}]
            /\ UNCHANGED <<state, stack, full_graph, drop_edges>>
 
 \* The top of the stack is in an SCC (warm phase >= 2) and has a
 \* dependency that is SccInProgress in the same SCC. Instead of a
 \* placeholder, we use the previous iteration's answer.
 \* Guard: dep must have a previous answer available.
+\* Records the SCC's anchor_pos in scc_anchors_read for cross-SCC
+\* leakage detection.
 ReadPreviousAnswer(dep) ==
     /\ stack /= <<>>
     /\ scc_stack /= <<>>
@@ -346,6 +396,9 @@ ReadPreviousAnswer(dep) ==
            /\ dep \in scc_stack[topSccIdx].prev_answers
            /\ scc_stack' = [scc_stack EXCEPT
                   ![topSccIdx].node_state[dep] = "SccHasPlaceholder"]
+           /\ scc_anchors_read' = [scc_anchors_read EXCEPT
+                  ![top] = scc_anchors_read[top] \union
+                           {scc_stack[topSccIdx].anchor_pos}]
            /\ UNCHANGED <<state, stack, full_graph, drop_edges>>
 
 \* Is the SCC at index idx fully done and ready to advance?
@@ -360,12 +413,16 @@ SccAllDone(idx, popping_node) ==
 
 \* Batch-commit an SCC: all members become globally Done,
 \* the SCC is removed from scc_stack.
+\* Clears scc_anchors_read for committed members.
 CommitSccState(idx) ==
     LET scc == scc_stack[idx]
     IN  /\ state' = [n \in Nodes |->
             IF n \in scc.members THEN "Done"
             ELSE state[n]]
         /\ scc_stack' = FilterSeq(scc_stack, {idx})
+        /\ scc_anchors_read' = [n \in Nodes |->
+            IF n \in scc.members THEN {}
+            ELSE scc_anchors_read[n]]
 
 \* The top of the stack has all dependencies resolved: pop it.
 \* A dependency is resolved if it is:
@@ -390,7 +447,7 @@ FinishCalculation ==
            /\ IF topSccIdx = 0
               THEN \* Acyclic node: just mark Done.
                    /\ state' = [state EXCEPT ![top] = "Done"]
-                   /\ UNCHANGED scc_stack
+                   /\ UNCHANGED <<scc_stack, scc_anchors_read>>
               ELSE IF SccAllDone(topSccIdx, top)
                       /\ scc_stack[topSccIdx].phase = MaxPhase
               THEN \* Last SCC member at final phase: batch-commit.
@@ -400,7 +457,7 @@ FinishCalculation ==
                         ![topSccIdx].node_state[top] = "SccDone",
                         ![topSccIdx].curr_answers =
                             scc_stack[topSccIdx].curr_answers \union {top}]
-                   /\ UNCHANGED state
+                   /\ UNCHANGED <<state, scc_anchors_read>>
            /\ stack' = Tail(stack)
            /\ UNCHANGED <<full_graph, drop_edges>>
 
@@ -408,6 +465,8 @@ FinishCalculation ==
 \* Fires when all members are SccDone, none are on the stack,
 \* and phase < MaxPhase.
 \* Moves curr_answers -> prev_answers, resets all members to SccFresh.
+\* Clears scc_anchors_read for all members (answers from this phase
+\* are now "prev_answers" — the tracking resets for the new phase).
 TransitionPhase(idx) ==
     /\ idx \in 1..Len(scc_stack)
     /\ scc_stack[idx].phase < MaxPhase
@@ -417,12 +476,15 @@ TransitionPhase(idx) ==
         n \notin StackSet
     /\ LET scc == scc_stack[idx]
            new_phase == scc.phase + 1
-       IN  scc_stack' = [scc_stack EXCEPT
+       IN  /\ scc_stack' = [scc_stack EXCEPT
                ![idx].phase = new_phase,
                ![idx].node_state =
                    [n \in scc.members |-> "SccFresh"],
                ![idx].prev_answers = scc.curr_answers,
                ![idx].curr_answers = {}]
+           /\ scc_anchors_read' = [n \in Nodes |->
+               IF n \in scc.members THEN {}
+               ELSE scc_anchors_read[n]]
     /\ UNCHANGED <<state, stack, full_graph, drop_edges>>
 
 \* Drive the next SCC member during fixpoint phases (>= 1).
@@ -433,6 +495,13 @@ StartNextMember(idx) ==
     /\ idx \in 1..Len(scc_stack)
     /\ scc_stack[idx].phase >= 1
     /\ \A n \in scc_stack[idx].members : n \notin StackSet
+    \* Stack must have unwound to exactly the SCC's anchor position.
+    /\ Len(stack) = scc_stack[idx].anchor_pos
+    \* No SCC above this one on the scc_stack is in fixpoint mode.
+    \* In the real code, only the innermost (topmost) active SCC
+    \* drives members; outer SCCs wait.
+    /\ \A j \in 1..Len(scc_stack) :
+        j < idx => scc_stack[j].phase < 1
     /\ LET fresh_members == {n \in scc_stack[idx].members :
                scc_stack[idx].node_state[n] = "SccFresh"}
        IN  /\ fresh_members /= {}
@@ -440,7 +509,7 @@ StartNextMember(idx) ==
               IN  /\ scc_stack' = [scc_stack EXCEPT
                        ![idx].node_state[n] = "SccInProgress"]
                   /\ stack' = <<n>> \o stack
-    /\ UNCHANGED <<state, full_graph, drop_edges>>
+    /\ UNCHANGED <<state, full_graph, drop_edges, scc_anchors_read>>
 
 Next ==
     \/ \E n \in Nodes : StartRoot(n)
@@ -456,7 +525,7 @@ Next ==
 Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 
 \* ---------------------------------------------------------------
-\* Invariants
+\* Invariants (structural)
 \* ---------------------------------------------------------------
 
 \* Everything on the stack is globally InProgress.
@@ -506,6 +575,47 @@ SccStackOrdered ==
             /\ \E n \in scc_stack[i].members : n \in StackSet
             /\ \E n \in scc_stack[j].members : n \in StackSet
             => scc_stack[i].anchor_pos >= scc_stack[j].anchor_pos
+
+\* ---------------------------------------------------------------
+\* Invariants (new: correctness properties)
+\* ---------------------------------------------------------------
+
+\* (a) No cross-SCC preliminary answer leakage.
+\* If a node read preliminary answers (via placeholder or previous
+\* answer), it must have read from exactly one SCC, and that SCC
+\* must be the one the node belongs to.
+\* A violation means a node consumed a preliminary answer from a
+\* *different* SCC without being merged into it.
+NoCrossSccLeakage ==
+    \A n \in Nodes :
+        LET anchors == scc_anchors_read[n]
+            scc_idx == SccOf(n)
+        IN  \/ anchors = {}
+            \/ /\ Cardinality(anchors) = 1
+               /\ scc_idx /= 0
+               /\ scc_stack[scc_idx].anchor_pos \in anchors
+
+\* (b) Committed SCCs match ground truth.
+\* At commit time (phase = MaxPhase, all members done), the SCC's
+\* members should be exactly one of the ground-truth SCCs.
+\* Since FullTraversalPhase forces full edge visibility at some
+\* point, all true members should have been discovered by commit.
+CommittedSccMatchesTruth ==
+    \A i \in 1..Len(scc_stack) :
+        scc_stack[i].phase = MaxPhase =>
+            scc_stack[i].members \in TrueSccSets
+
+\* (c) All answers available at commit.
+\* When an SCC reaches MaxPhase and all members are SccDone with
+\* none on the stack, every member must have a current answer.
+AllAnswersAtCommit ==
+    \A i \in 1..Len(scc_stack) :
+        /\ scc_stack[i].phase = MaxPhase
+        /\ \A n \in scc_stack[i].members :
+            scc_stack[i].node_state[n] = "SccDone"
+        /\ \A n \in scc_stack[i].members :
+            n \notin StackSet
+        => scc_stack[i].curr_answers = scc_stack[i].members
 
 \* ---------------------------------------------------------------
 \* Properties
