@@ -20,10 +20,6 @@
 
 EXTENDS Sequences, FiniteSets, Naturals, DynamicGraph
 
-CONSTANTS
-    MaxDeps,    \* max outgoing edges per node (for tractability)
-    MaxPhase    \* number of phases: 0 = discovery, 1..MaxPhase = iterations
-
 \*
 \* scc_anchors_read tracks, for each node, which SCC anchor_pos
 \* values it has read preliminary answers from. Used to verify
@@ -36,11 +32,9 @@ vars == <<state, stack, scc_stack, solve_count, scc_anchors_read>>
 \* Assumptions on constants
 \* ---------------------------------------------------------------
 
-ASSUME MaxPhase \in Nat
 ASSUME StepCount \in Nat /\ StepCount > 0
 ASSUME FullGraph \in [Nodes -> SUBSET Nodes]
 ASSUME DynamicSteps \in Seq([Nodes -> SUBSET Nodes]) /\ Len(DynamicSteps) = StepCount
-ASSUME \A n \in Nodes : Cardinality(FullGraph[n]) <= MaxDeps
 ASSUME \A k \in 1..StepCount :
     \A n \in Nodes : DynamicSteps[k][n] \subseteq FullGraph[n]
 
@@ -48,19 +42,22 @@ ASSUME \A k \in 1..StepCount :
 \* Helpers
 \* ---------------------------------------------------------------
 
+\* Number of fixpoint phases after discovery; tied to dynamic schedule horizon.
+MaxPhase == StepCount - 1
+
 \* The set of all nodes currently on the stack.
 StackSet == {stack[i] : i \in 1..Len(stack)}
 
-\* Find the position of node n in the stack (1-indexed from top).
+\* Find the position of node n in the stack (1-indexed from bottom).
 \* Returns 0 if not found.
 StackPos(n) ==
     IF \E i \in 1..Len(stack) : stack[i] = n
     THEN CHOOSE i \in 1..Len(stack) : stack[i] = n
     ELSE 0
 
-\* The set of nodes on the stack from position 1 (top) through pos.
+\* The set of nodes on the stack from position pos through top.
 StackSlice(pos) ==
-    {stack[i] : i \in 1..pos}
+    {stack[i] : i \in pos..Len(stack)}
 
 \* Which SCC (by index in scc_stack) does node n belong to?
 \* Returns 0 if n is not in any SCC.
@@ -228,7 +225,7 @@ BackEdgeTargetPos(dep) ==
     IN  IF depSccIdx /= 0
         THEN LET positions == {StackPos(n) : n \in scc_stack[depSccIdx].members} \ {0}
              IN  IF positions = {} THEN 0
-                 ELSE MaxOfSet(positions)
+                 ELSE MinOfSet(positions)
         ELSE StackPos(dep)
 
 \* No-op check: all cycle members are already in a single SCC.
@@ -278,7 +275,7 @@ StartRoot(n) ==
     /\ scc_stack = <<>>
     /\ state[n] = "Fresh"
     /\ state' = [state EXCEPT ![n] = "InProgress"]
-    /\ stack' = <<n>>
+    /\ stack' = Append(stack, n)
     /\ solve_count' = RecordPush(solve_count, n)
     /\ UNCHANGED <<scc_stack, scc_anchors_read>>
 
@@ -287,11 +284,11 @@ StartRoot(n) ==
 \* can be traversed.
 Descend(dep) ==
     /\ stack /= <<>>
-    /\ LET top == Head(stack)
+    /\ LET top == stack[Len(stack)]
        IN  /\ dep \in VisibleGraph(top)
            /\ state[dep] = "Fresh"
            /\ state' = [state EXCEPT ![dep] = "InProgress"]
-           /\ stack' = <<dep>> \o stack
+           /\ stack' = Append(stack, dep)
            /\ solve_count' = RecordPush(solve_count, dep)
            /\ UNCHANGED <<scc_stack, scc_anchors_read>>
 
@@ -301,7 +298,7 @@ Descend(dep) ==
 \* The node is globally InProgress (from phase 0) but SCC-locally Fresh.
 DescendIntoSccMember(dep) ==
     /\ stack /= <<>>
-    /\ LET top == Head(stack)
+    /\ LET top == stack[Len(stack)]
            topSccIdx == SccOf(top)
        IN  /\ topSccIdx /= 0
            /\ scc_stack[topSccIdx].phase >= 1
@@ -311,7 +308,7 @@ DescendIntoSccMember(dep) ==
            /\ dep \notin StackSet
            /\ scc_stack' = [scc_stack EXCEPT
                   ![topSccIdx].node_state[dep] = "SccInProgress"]
-           /\ stack' = <<dep>> \o stack
+           /\ stack' = Append(stack, dep)
            /\ solve_count' = RecordPush(solve_count, dep)
            /\ UNCHANGED <<state, scc_anchors_read>>
 
@@ -320,14 +317,14 @@ DescendIntoSccMember(dep) ==
 \* Uses VisibleGraph for edge visibility.
 DetectCycle(dep) ==
     /\ stack /= <<>>
-    /\ LET top == Head(stack)
+    /\ LET top == stack[Len(stack)]
        IN  /\ dep \in VisibleGraph(top)
            /\ state[dep] = "InProgress"
            /\ dep \in StackSet \/ InAnyScc(dep)
            /\ LET target_pos == BackEdgeTargetPos(dep)
               IN  /\ target_pos /= 0
                   /\ LET cycle_members == StackSlice(target_pos)
-                         anchor == Len(stack) - target_pos
+                         anchor == target_pos - 1
                      IN  /\ ResolveCycle(cycle_members, anchor)
                          /\ UNCHANGED <<state, stack, solve_count>>
 
@@ -341,7 +338,7 @@ DetectCycle(dep) ==
 CreatePlaceholder(dep) ==
     /\ stack /= <<>>
     /\ scc_stack /= <<>>
-    /\ LET top == Head(stack)
+    /\ LET top == stack[Len(stack)]
            topSccIdx == SccOf(top)
        IN  /\ topSccIdx /= 0
            /\ scc_stack[topSccIdx].phase <= 1
@@ -364,7 +361,7 @@ CreatePlaceholder(dep) ==
 ReadPreviousAnswer(dep) ==
     /\ stack /= <<>>
     /\ scc_stack /= <<>>
-    /\ LET top == Head(stack)
+    /\ LET top == stack[Len(stack)]
            topSccIdx == SccOf(top)
        IN  /\ topSccIdx /= 0
            /\ scc_stack[topSccIdx].phase >= 2
@@ -415,7 +412,7 @@ CommitSccState(idx) ==
 \*   will advance to the next phase when all members are done).
 FinishCalculation ==
     /\ stack /= <<>>
-    /\ LET top == Head(stack)
+    /\ LET top == stack[Len(stack)]
            topSccIdx == SccOf(top)
        IN  /\ \A dep \in VisibleGraph(top) :
                 \/ state[dep] = "Done"
@@ -436,7 +433,7 @@ FinishCalculation ==
                         ![topSccIdx].curr_answers =
                             scc_stack[topSccIdx].curr_answers \union {top}]
                    /\ UNCHANGED <<state, scc_anchors_read>>
-           /\ stack' = Tail(stack)
+           /\ stack' = SubSeq(stack, 1, Len(stack) - 1)
            /\ UNCHANGED solve_count
 
 \* Transition an SCC to the next phase.
@@ -486,7 +483,7 @@ StartNextMember(idx) ==
            /\ LET n == PickNode(fresh_members)
               IN  /\ scc_stack' = [scc_stack EXCEPT
                        ![idx].node_state[n] = "SccInProgress"]
-                  /\ stack' = <<n>> \o stack
+                  /\ stack' = Append(stack, n)
                   /\ solve_count' = RecordPush(solve_count, n)
     /\ UNCHANGED <<state, scc_anchors_read>>
 
@@ -511,7 +508,7 @@ Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 \* (i.e., membership expansion rather than a no-op contained cycle).
 DetectCycleExpands(dep) ==
     /\ stack /= <<>>
-    /\ LET top == Head(stack)
+    /\ LET top == stack[Len(stack)]
            target_pos == BackEdgeTargetPos(dep)
        IN  /\ dep \in VisibleGraph(top)
            /\ state[dep] = "InProgress"
