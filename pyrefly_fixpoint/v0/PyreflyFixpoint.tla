@@ -528,6 +528,47 @@ MergeExpansionResetsPhase0Action ==
 \* Temporal property wrapping the action formula.
 MergeExpansionResetsPhase0 == [][MergeExpansionResetsPhase0Action]_vars
 
+\* Action formula: on membership-expanding merge, answer caches must be reset.
+MergeExpansionClearsAnswersAction ==
+    \A dep \in Nodes :
+        /\ DetectCycle(dep)
+        /\ DetectCycleExpands(dep)
+        => /\ scc_stack'[1].prev_answers = {}
+           /\ scc_stack'[1].curr_answers = {}
+
+\* Action formula: phase transition and commit only happen on explicit all-done readiness.
+CommitOrTransitionRequiresAllDoneAction ==
+    /\ \A idx \in 1..Len(scc_stack) :
+        TransitionPhase(idx) =>
+            /\ \A n \in scc_stack[idx].members :
+                scc_stack[idx].node_state[n] = "SccDone"
+            /\ \A n \in scc_stack[idx].members :
+                n \notin StackSet
+    /\ \A idx \in 1..Len(scc_stack) :
+        CommitSccState(idx) =>
+            /\ stack /= <<>>
+            /\ scc_stack[idx].phase = MaxPhase
+            /\ LET top == stack[Len(stack)]
+               IN SccAllDone(idx, top)
+
+\* Action formula: warm back-edges (phase >= 2) must not use placeholder path.
+WarmBackedgeNeverUsesPlaceholderAction ==
+    \A dep \in Nodes :
+        /\ stack /= <<>>
+        /\ scc_stack /= <<>>
+        /\ LET top == stack[Len(stack)]
+               topSccIdx == SccOf(top)
+           IN  /\ topSccIdx /= 0
+               /\ scc_stack[topSccIdx].phase >= 2
+               /\ dep \in VisibleGraph(top)
+               /\ SccOf(dep) = topSccIdx
+               /\ SccState(dep) = "SccInProgress"
+        => ~CreatePlaceholder(dep)
+
+MergeExpansionClearsAnswers == [][MergeExpansionClearsAnswersAction]_vars
+CommitOrTransitionRequiresAllDone == [][CommitOrTransitionRequiresAllDoneAction]_vars
+WarmBackedgeNeverUsesPlaceholder == [][WarmBackedgeNeverUsesPlaceholderAction]_vars
+
 \* ---------------------------------------------------------------
 \* Invariants (structural)
 \* ---------------------------------------------------------------
