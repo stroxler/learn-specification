@@ -1,5 +1,5 @@
 {
-  description = "Alloy 6 development environment";
+  description = "Formal specification tools development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -15,7 +15,11 @@
     {
       devShells = forAllSystems ({ pkgs }: {
         default = pkgs.mkShell {
-          packages = [ pkgs.alloy6 ];
+          packages = [
+            pkgs.alloy6
+            pkgs.quint
+            pkgs.tlaplus
+          ];
         };
       });
     };
