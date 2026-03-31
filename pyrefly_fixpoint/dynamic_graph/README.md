@@ -1,36 +1,32 @@
-# Dynamic Graph Tooling (Scaffold)
+# Dynamic Graph Tooling
 
-This folder is an isolated workspace for generating dynamic graph schedules
-from Alloy traces and converting them into copy-pasteable TLA constants.
+This folder generates a raw dynamic graph module from Alloy traces.
+`pyrefly_fixpoint/v0/PyreflyFixpoint.tla` should not import that raw module
+directly; it imports `v0/DynamicGraph.tla`, which wraps the raw graph and
+exposes stable helper operators.
 
-## Purpose
+## Modules
 
-Separate two concerns:
+- Generated `v0/RawDynamicGraph.tla`: defines `Nodes`, `StepCount`,
+  `FullGraph`, `DynamicSteps`.
+- Stable wrapper `v0/DynamicGraph.tla`: extends `RawDynamicGraph` and defines
+  `PushCountInit`, `RecordPush(push_count, n)`, `StepFor(push_count, n)`,
+  `Deps(push_count, n)`, `DynamicDeps(push_count, n)`.
 
-- Graph/schedule construction (`full_graph`, `dynamic_steps`, etc.)
-- Solver correctness checking (TLA/TLC)
+## Workflow
 
-The solver spec should consume validated constants; it should not encode graph
-construction policy.
-
-## Scope Note
-
-The dynamic-graph constraints in this folder are **simulation assumptions**,
-not claims about real-world Pyrefly behavior. They are intentionally stronger
-than production behavior so test cases support SCC-discovery-complete
-reasoning and stronger invariants in the solver model.
-
-## Primary Workflow
-
-1. Generate traces:
+1. Generate Alloy traces into `.traces`:
    `alloy6 exec -f -o .traces -t json -r 20 dynamic_graph_gen.als`
-2. Convert one solution trace to a TLA constants fragment:
-   `python3 scripts/alloy_trace_to_tla_constants.py .traces/run$1-solution-0.json .generated/case0.cfg.inc`
-3. Copy constants into a TLC cfg (or include fragment) and run the solver model.
+2. Convert one trace into a raw TLA module in `.generated`:
+   `python3 scripts/alloy_trace_to_tla_constants.py .traces/run$1-solution-10.json .generated/RawDynamicGraph.case0.tla`
+3. Install the generated raw module in `v0`:
+   `cp .generated/RawDynamicGraph.case0.tla ../v0/RawDynamicGraph.tla`
+4. Run TLC from `v0`:
+   `tlc -cleanup -metadir states/run-main-$RANDOM -config PyreflyFixpoint.cfg PyreflyFixpoint.tla`
 
 ## Example Trace Input
 
-Raw Alloy trace snippet (`.traces/run$1-solution-0.json`):
+Raw Alloy trace snippet (`.traces/run$1-solution-10.json`):
 
 ```json
 {
@@ -38,90 +34,63 @@ Raw Alloy trace snippet (`.traces/run$1-solution-0.json`):
     {
       "values": {
         "FullGraph$0": {
-          "edges": [["Node$0", "Node$2"], ["Node$1", "Node$1"], ["Node$2", "Node$0"]]
+          "edges": [
+            ["Node$0", "Node$0"],
+            ["Node$0", "Node$2"],
+            ["Node$1", "Node$0"],
+            ["Node$1", "Node$1"],
+            ["Node$2", "Node$1"]
+          ]
         },
-        "Params$0": { "step_count": [["4"]] },
-        "Step$0": {
-          "idx": [["3"]],
-          "edges": [["Node$0", "Node$2"], ["Node$2", "Node$0"]]
-        },
-        "Step$3": {
-          "idx": [["0"]],
-          "edges": [["Node$0", "Node$2"], ["Node$1", "Node$1"]]
-        }
+        "Params$0": { "step_count": [["4"]] }
       }
     }
   ]
 }
 ```
 
-## Example `.cfg` Output
+## Example Generated Output
 
-Converted TLA constants fragment (`.generated/case0.cfg.inc`):
+Generated module (`.generated/RawDynamicGraph.case0.tla`):
 
 ```tla
+---- MODULE RawDynamicGraph ----
+
 \* Node mapping (alias -> Alloy atom):
 \* n0 = Node$0
 \* n1 = Node$1
 \* n2 = Node$2
 \* n3 = Node$3
-CONSTANT Nodes = {"n0", "n1", "n2", "n3"}
-CONSTANT StepCount = 4
-CONSTANT FullGraph = [
-  "n0" |-> {"n2"},
-  "n1" |-> {"n1"},
-  "n2" |-> {"n0", "n1", "n2"},
-  "n3" |-> {}
+
+Nodes == {"n0", "n1", "n2", "n3"}
+
+StepCount == 4
+
+FullGraph ==
+[n \in Nodes |->
+    IF n = "n0" THEN {"n0", "n2"}
+    ELSE IF n = "n1" THEN {"n0", "n1"}
+    ELSE IF n = "n2" THEN {"n1"}
+    ELSE {}
 ]
-CONSTANT DynamicSteps = [
-  0 |-> [
-      "n0" |-> {"n2"},
-      "n1" |-> {"n1"},
-      "n2" |-> {"n0"},
-      "n3" |-> {}
-    ],
-  1 |-> [
-      "n0" |-> {"n2"},
-      "n1" |-> {},
-      "n2" |-> {"n0", "n1", "n2"},
-      "n3" |-> {}
-    ],
-  2 |-> [
-      "n0" |-> {"n2"},
-      "n1" |-> {},
-      "n2" |-> {"n0", "n1", "n2"},
-      "n3" |-> {}
-    ],
-  3 |-> [
-      "n0" |-> {"n2"},
-      "n1" |-> {},
-      "n2" |-> {"n0", "n1", "n2"},
-      "n3" |-> {}
-    ]
+
+Step0 ==
+[n \in Nodes |->
+    IF n = "n0" THEN {"n2"}
+    ELSE IF n = "n1" THEN {"n0", "n1"}
+    ELSE IF n = "n2" THEN {"n1"}
+    ELSE {}
 ]
+
+DynamicSteps ==
+    <<Step0, Step1, Step2, Step3>>
+
+====
 ```
 
 ## Contract Targets
 
-For each generated case:
-
-- `step_count` defines the dynamic schedule horizon.
-- Full-graph cycle set is non-empty (`some FullCycleNodes`).
-- Soundness: for each step `k`, `dynamic_steps[k][n] ⊆ full_graph[n]`.
-- Initial-cycle alignment: cycle participants in `dynamic_steps[0]`
-  exactly match cycle participants in `full_graph`.
-- Step-horizon coverage: every edge in `full_graph` appears in at least one step.
-
-These are simulation assumptions used to rule out partial SCC discovery.
-
-## Directory Layout
-
-- `schemas/`: config schema and case schema.
-- `dynamic_graph_gen.als`: Alloy generator model for valid graph schedules.
-- `scripts/`: trace conversion and optional helpers.
-- `.generated/`: output artifacts (ignored except `.gitkeep`).
-
-## Status
-
-Trace generation and conversion are usable now. Schema/validation helpers are
-optional guardrails and can be kept lightweight until needed.
+- Full-graph cycle set is non-empty.
+- Initial step cycle participants match full-graph cycle participants.
+- Every `Step[k][n]` is a subset of `FullGraph[n]`.
+- Every full edge appears in at least one step (within `StepCount`).
