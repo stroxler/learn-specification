@@ -2,3 +2,5 @@
 .traces*
 states
 .direnv
+.npm-packages
+.generated
