@@ -632,6 +632,23 @@ SccSegmentRangeIsLive ==
             /\ pos \in 1..Len(stack)
             /\ stack[pos] \in scc_stack[i].members
 
+\* A state-level completion candidate for final-phase SCC commit.
+\* This mirrors the completion-point shape: stack has unwound to SCC bottom
+\* and the SCC has at most one still-live member frame.
+SccCompletable(idx) ==
+    /\ idx \in 1..Len(scc_stack)
+    /\ scc_stack[idx].phase = MaxPhase
+    /\ Len(stack) <= scc_stack[idx].bottom_pos_inclusive
+    /\ LET live_members == {n \in scc_stack[idx].members : n \in StackSet}
+       IN  /\ Cardinality(live_members) <= 1
+           /\ \A n \in scc_stack[idx].members :
+                \/ n \in live_members
+                \/ scc_stack[idx].node_state[n] = "SccDone"
+
+\* At any completion point, at most one SCC can be eligible for commit.
+AtMostOneCompletableScc ==
+    Cardinality({i \in 1..Len(scc_stack) : SccCompletable(i)}) <= 1
+
 \* SCC segments form a monotonic disjoint chain of half-open ranges:
 \* [bottom_pos_inclusive, top_pos_exclusive).
 \* Earlier SCC-stack entries (lower index) are above later ones on the

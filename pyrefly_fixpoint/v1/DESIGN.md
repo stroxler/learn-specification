@@ -177,6 +177,7 @@ Structural:
 - `SccMembersDisjoint`
 - `SccHasLiveMember`
 - `SccSegmentRangeIsLive`
+- `AtMostOneCompletableScc`
 - `SccSegmentsMonotonicDisjoint`
 - `SccStackOrdered`
 
