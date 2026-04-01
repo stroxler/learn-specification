@@ -475,11 +475,12 @@ TransitionPhase(idx) ==
                ELSE scc_anchors_read[n]]
     /\ UNCHANGED <<state, stack, solve_count>>
 
-\* Drive the next SCC member during fixpoint phases (>= 1).
-\* Picks the minimum SccFresh member. Only fires when no SCC
-\* member is currently on the calc stack (the previous DFS has
-\* fully unwound).
-StartNextMember(idx) ==
+\* Shared readiness conditions for starting another member drive for SCC idx.
+FreshMembers(idx) ==
+    {n \in scc_stack[idx].members :
+        scc_stack[idx].node_state[n] = "SccFresh"}
+
+CanStartNextMember(idx) ==
     /\ idx \in 1..Len(scc_stack)
     /\ scc_stack[idx].phase >= 1
     /\ \A n \in scc_stack[idx].members : n \notin StackSet
@@ -490,8 +491,15 @@ StartNextMember(idx) ==
     \* drives members; outer SCCs wait.
     /\ \A j \in 1..Len(scc_stack) :
         j < idx => scc_stack[j].phase < 1
-    /\ LET fresh_members == {n \in scc_stack[idx].members :
-               scc_stack[idx].node_state[n] = "SccFresh"}
+    /\ FreshMembers(idx) /= {}
+
+\* Drive the next SCC member during fixpoint phases (>= 1).
+\* Picks the minimum SccFresh member. Only fires when no SCC
+\* member is currently on the calc stack (the previous DFS has
+\* fully unwound).
+StartNextMember(idx) ==
+    /\ CanStartNextMember(idx)
+    /\ LET fresh_members == FreshMembers(idx)
        IN  /\ fresh_members /= {}
            /\ LET n == PickNode(fresh_members)
               IN  /\ scc_stack' = [scc_stack EXCEPT
@@ -663,6 +671,15 @@ SccCompletable(idx) ==
 \* At any completion point, at most one SCC can be eligible for commit.
 AtMostOneCompletableScc ==
     Cardinality({i \in 1..Len(scc_stack) : SccCompletable(i)}) <= 1
+
+\* If an SCC is in the state where a new fixpoint-member drive can start,
+\* its segment must be empty and the stack must be positioned just below
+\* the segment bottom.
+IterationStartStackAtBottom ==
+    \A idx \in 1..Len(scc_stack) :
+        CanStartNextMember(idx)
+        => /\ scc_stack[idx].top_pos_exclusive = scc_stack[idx].bottom_pos_inclusive
+           /\ Len(stack) + 1 = scc_stack[idx].bottom_pos_inclusive
 
 \* SCC segments form a monotonic disjoint chain of half-open ranges:
 \* [bottom_pos_inclusive, top_pos_exclusive).

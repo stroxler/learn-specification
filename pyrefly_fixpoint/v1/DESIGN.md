@@ -178,6 +178,7 @@ Structural:
 - `SccHasLiveMember`
 - `SccSegmentRangeIsLive`
 - `AtMostOneCompletableScc`
+- `IterationStartStackAtBottom`
 - `SccSegmentsMonotonicDisjoint`
 - `SccStackOrdered`
 
@@ -218,6 +219,26 @@ Interpretation:
 - Current implementation behavior can temporarily violate this contract in some
   traces; this is treated as a bug, not as acceptable behavior.
 - The v1 spec keeps these checks enabled as normative safety requirements.
+
+### Implementation Snapshot (`2024-03-31`)
+
+Observed single-thread sequencing (implementation-side):
+
+1. SCC completion is first detected while the entrypoint frame is still on the
+   calc stack.
+2. `pop` happens before taking the completed SCC object.
+3. Iteration starts from the popped SCC, so entrypoint is not on stack at
+   iteration entry.
+4. Members are re-driven via fresh push/pop cycles.
+
+Operational interpretation:
+
+- At iteration entry, implementation stack length equals
+  `bottom_pos_inclusive` (implementation indexing).
+- In this spec's 1-based stack-position model, the equivalent condition is
+  `Len(stack) + 1 = bottom_pos_inclusive`.
+- `IterationStartStackAtBottom` encodes this as a normative requirement for
+  states where member re-drive can begin.
 
 ## Dynamic Input Contract Assumptions
 
