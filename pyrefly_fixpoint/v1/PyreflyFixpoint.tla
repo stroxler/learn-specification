@@ -551,6 +551,20 @@ MergeExpansionClearsAnswersAction ==
         => /\ scc_stack'[1].prev_answers = {}
            /\ scc_stack'[1].curr_answers = {}
 
+\* Action formula: membership-expanding merge must absorb all live
+\* calc-stack frames in the merged segment range.
+MergeExpansionAbsorbsSegmentFramesAction ==
+    \A dep \in Nodes :
+        /\ DetectCycle(dep)
+        /\ DetectCycleExpands(dep)
+        => LET cycle_start_pos == BackEdgeTargetPos(dep)
+               overlapping == OverlappingSccs(cycle_start_pos)
+               all_bottoms == {scc_stack[i].bottom_pos_inclusive : i \in overlapping}
+                              \union {cycle_start_pos}
+               min_bottom == MinOfSet(all_bottoms)
+               absorbed_frames == {stack[p] : p \in min_bottom..Len(stack)}
+           IN absorbed_frames \subseteq scc_stack'[1].members
+
 \* Action formula: phase transition and commit only happen on explicit all-done readiness.
 CommitOrTransitionRequiresAllDoneAction ==
     /\ \A idx \in 1..Len(scc_stack) :
@@ -581,6 +595,7 @@ WarmBackedgeNeverUsesPlaceholderAction ==
         => ~CreatePlaceholder(dep)
 
 MergeExpansionClearsAnswers == [][MergeExpansionClearsAnswersAction]_vars
+MergeExpansionAbsorbsSegmentFrames == [][MergeExpansionAbsorbsSegmentFramesAction]_vars
 CommitOrTransitionRequiresAllDone == [][CommitOrTransitionRequiresAllDoneAction]_vars
 WarmBackedgeNeverUsesPlaceholder == [][WarmBackedgeNeverUsesPlaceholderAction]_vars
 

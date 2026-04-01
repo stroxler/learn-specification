@@ -154,7 +154,7 @@ expected to preserve or enforce.
 | `Descend` | `TypeOk`, `StackIsInProgress`, `SccWellFormed` |
 | `DescendIntoSccMember` | `TypeOk`, `SccWellFormed`, `SccMembersGloballyInProgress`, `SccMembersDisjoint` |
 | `DetectCycle` (no-op contained cycle) | `SccWellFormed`, `SccMembersDisjoint`, `SccSegmentsMonotonicDisjoint` |
-| `DetectCycle` (membership-expanding merge) | `MergeExpansionResetsPhase0`, `MergeExpansionClearsAnswers`, `PrevAnswersComplete`, `NoCrossSccLeakage` |
+| `DetectCycle` (membership-expanding merge) | `MergeExpansionResetsPhase0`, `MergeExpansionClearsAnswers`, `MergeExpansionAbsorbsSegmentFrames`, `PrevAnswersComplete`, `NoCrossSccLeakage` |
 | `CreatePlaceholder` | `NoCrossSccLeakage`, `StackIsInProgress` |
 | `ReadPreviousAnswer` | `WarmBackedgeNeverUsesPlaceholder`, `PrevAnswersComplete`, `NoCrossSccLeakage` |
 | `FinishCalculation` (acyclic node) | `DepsBeforeDone`, `StackIsInProgress` |
@@ -194,6 +194,7 @@ The model also checks explicit transition-level properties:
 
 - `MergeExpansionResetsPhase0`
 - `MergeExpansionClearsAnswers`
+- `MergeExpansionAbsorbsSegmentFrames`
 - `CommitOrTransitionRequiresAllDone`
 - `WarmBackedgeNeverUsesPlaceholder`
 
