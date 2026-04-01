@@ -387,6 +387,14 @@ ReadPreviousAnswer(dep) ==
 
 \* Is the SCC at index idx fully done and ready to advance?
 \* All members must be SccDone and none can be on the calc stack.
+MembersDone(idx) ==
+    \A n \in scc_stack[idx].members :
+        scc_stack[idx].node_state[n] = "SccDone"
+
+MembersOffStack(idx) ==
+    \A n \in scc_stack[idx].members :
+        n \notin StackSet
+
 SccAllDone(idx, popping_node) ==
     /\ \A n \in scc_stack[idx].members :
         \/ scc_stack[idx].node_state[n] = "SccDone"
@@ -458,10 +466,8 @@ FinishCalculation ==
 TransitionPhase(idx) ==
     /\ idx \in 1..Len(scc_stack)
     /\ scc_stack[idx].phase < MaxPhase
-    /\ \A n \in scc_stack[idx].members :
-        scc_stack[idx].node_state[n] = "SccDone"
-    /\ \A n \in scc_stack[idx].members :
-        n \notin StackSet
+    /\ MembersDone(idx)
+    /\ MembersOffStack(idx)
     /\ LET scc == scc_stack[idx]
            new_phase == scc.phase + 1
        IN  /\ scc_stack' = [scc_stack EXCEPT
@@ -577,10 +583,8 @@ MergeExpansionAbsorbsSegmentFramesAction ==
 CommitOrTransitionRequiresAllDoneAction ==
     /\ \A idx \in 1..Len(scc_stack) :
         TransitionPhase(idx) =>
-            /\ \A n \in scc_stack[idx].members :
-                scc_stack[idx].node_state[n] = "SccDone"
-            /\ \A n \in scc_stack[idx].members :
-                n \notin StackSet
+            /\ MembersDone(idx)
+            /\ MembersOffStack(idx)
     /\ \A idx \in 1..Len(scc_stack) :
         CommitSccState(idx) =>
             /\ stack /= <<>>
@@ -727,10 +731,8 @@ CommittedSccMatchesTruth ==
 AllAnswersAtCommit ==
     \A i \in 1..Len(scc_stack) :
         /\ scc_stack[i].phase = MaxPhase
-        /\ \A n \in scc_stack[i].members :
-            scc_stack[i].node_state[n] = "SccDone"
-        /\ \A n \in scc_stack[i].members :
-            n \notin StackSet
+        /\ MembersDone(i)
+        /\ MembersOffStack(i)
         => scc_stack[i].curr_answers = scc_stack[i].members
 
 \* (d) Demotion correctness: if an SCC reached phase >= 2, it must
